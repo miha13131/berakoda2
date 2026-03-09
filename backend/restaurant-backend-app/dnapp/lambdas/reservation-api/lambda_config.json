@@ -1,13 +1,13 @@
 {
   "version": "1.0",
-  "name": "bookings-client-handler",
-  "func_name": "BookingsClientHandler::BookingsClientHandler.Function::FunctionHandler",
+  "name": "reservation-api",
+  "func_name": "ReservationApi::ReservationApi.Function::FunctionHandler",
   "resource_type": "lambda",
-  "iam_role_name": "bookings-client-handler-role",
+  "iam_role_name": "reservation-api-role",
   "runtime": "dotnet8",
   "memory": 256,
   "timeout": 100,
-  "lambda_path": "lambdas\\bookings-client-handler",
+  "lambda_path": "lambdas\\reservation-api",
   "dependencies": [
     {
       "resource_name": "Reservations",
