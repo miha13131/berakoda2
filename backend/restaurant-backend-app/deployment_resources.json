@@ -337,7 +337,7 @@
         "POST": {
           "authorization_type": "COGNITO_USER_POOLS",
           "integration_type": "lambda",
-          "lambda_name": "bookings-client-handler",
+          "lambda_name": "reservation-api",
           "api_key_required": false,
           "method_request_parameters": {},
           "integration_request_body_template": {},

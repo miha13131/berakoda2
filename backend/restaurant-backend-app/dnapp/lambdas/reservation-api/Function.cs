@@ -12,7 +12,7 @@ using shared;
 
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
 
-namespace BookingsClientHandler;
+namespace ReservationApi;
 
 public class Function
 {

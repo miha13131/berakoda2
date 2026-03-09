@@ -1,8 +1,10 @@
 {
-  "bookings-client-handler-role": {
+  "reservation-api-role": {
     "predefined_policies": [],
     "principal_service": "lambda",
-    "allowed_accounts": [ "${account_id}" ],
+    "allowed_accounts": [
+      "${account_id}"
+    ],
     "custom_policies": [
       "lambda-basic-execution"
     ],
