@@ -1,0 +1,5 @@
+E:\RestaurantApp\restaurant-app\backend\restaurant-backend-app\dnapp\lambdas\reservation-api\obj\Release\net8.0\linux-x64\Function.csproj.AssemblyReference.cache
+E:\RestaurantApp\restaurant-app\backend\restaurant-backend-app\dnapp\lambdas\reservation-api\obj\Release\net8.0\linux-x64\Function.GeneratedMSBuildEditorConfig.editorconfig
+E:\RestaurantApp\restaurant-app\backend\restaurant-backend-app\dnapp\lambdas\reservation-api\obj\Release\net8.0\linux-x64\Function.AssemblyInfoInputs.cache
+E:\RestaurantApp\restaurant-app\backend\restaurant-backend-app\dnapp\lambdas\reservation-api\obj\Release\net8.0\linux-x64\Function.AssemblyInfo.cs
+E:\RestaurantApp\restaurant-app\backend\restaurant-backend-app\dnapp\lambdas\reservation-api\obj\Release\net8.0\linux-x64\Function.csproj.CoreCompileInputs.cache

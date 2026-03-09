@@ -1,0 +1,32 @@
+using System.Collections.Generic;
+using System.Text.Json;
+using Amazon.Lambda.APIGatewayEvents;
+using Function.Models;
+
+namespace Function.Services;
+
+public class ResponseCreator
+{
+    public static APIGatewayProxyResponse CreateResponse(int statusCode, string description, object? value)
+    {
+        string statusString = statusCode >= 200 && statusCode < 300 ? "success" : "error";
+        
+        var responseBody = new ApiResponse<object>
+        {
+            Status = statusString,
+            Description = description,
+            Value = value
+        };
+
+        return new APIGatewayProxyResponse
+        {
+            StatusCode = statusCode,
+            Body = JsonSerializer.Serialize(responseBody),
+            Headers = new Dictionary<string, string>
+            {
+                { "Content-Type", "application/json" },
+                { "Access-Control-Allow-Origin", "*" }
+            }
+        };
+    }
+}

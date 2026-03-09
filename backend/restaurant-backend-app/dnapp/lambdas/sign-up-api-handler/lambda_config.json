@@ -1,0 +1,23 @@
+{
+  "version": "1.1",
+  "name": "sign-up-api-handler",
+  "func_name": "SignUpApiHandler::Function.SignUpFunction::SignUp",
+  "resource_type": "lambda",
+  "iam_role_name": "sign-up-api-handler-role",
+  "runtime": "dotnet8",
+  "memory": 128,
+  "timeout": 100,
+  "lambda_path": "lambdas\\sign-up-api-handler",
+  "dependencies": [],
+  "event_sources": [],
+  "env_variables": {},
+  "deploy_stage": "api",
+  "architectures": [
+    "x86_64"
+  ],
+  "publish_version": true,
+  "alias": "${lambdas_alias_name}",
+  "url_config": {},
+  "ephemeral_storage": 512,
+  "tags": {}
+}
