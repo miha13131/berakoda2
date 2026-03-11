@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "name": "sign-up-confirm-email-handler",
+  "func_name": "SendConfirmation::SendConfirmation.Function::FunctionHandler",
+  "resource_type": "lambda",
+  "iam_role_name": "sign-up-confirm-email-handler-role",
+  "runtime": "dotnet8",
+  "memory": 128,
+  "timeout": 100,
+  "lambda_path": "lambdas\\sign-up-confirm-email-handler",
+  "dependencies": [],
+  "event_sources": [],
+  "env_variables": {},
+  "publish_version": true,
+  "alias": "${lambdas_alias_name}",
+  "url_config": {},
+  "ephemeral_storage": 512,
+  "tags": {}
+}
