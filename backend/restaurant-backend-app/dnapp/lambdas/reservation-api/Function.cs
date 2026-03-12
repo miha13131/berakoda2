@@ -51,7 +51,7 @@ public class Function
             var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body ?? string.Empty,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-            if (payload == null || string.IsNullOrWhiteSpace(payload.TableId) || payload.Guests <= 0)
+            if (payload == null || payload.TableId <= 0 || payload.Guests <= 0)
             {
                 return ResponseCreator.CreateResponse(400, "Bad Request", "tableId, guests and reservationStart are required.");
             }
@@ -101,7 +101,7 @@ public class Function
                         {
                             ["lock_id"] = new AttributeValue { S = lockKey },
                             ["reservation_id"] = new AttributeValue { S = reservationId },
-                            ["table_id"] = new AttributeValue { S = payload.TableId },
+                            ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                             ["expires_at"] = new AttributeValue { N = new DateTimeOffset(reservationEnd.AddMinutes(CleaningGapMinutes)).ToUnixTimeSeconds().ToString() }
                         },
                         ConditionExpression = "attribute_not_exists(lock_id)"
@@ -121,7 +121,7 @@ public class Function
                         ["reservation_end"] = new AttributeValue { S = reservationEnd.ToString("O", CultureInfo.InvariantCulture) },
                         ["reservation_date"] = new AttributeValue { S = reservationDate },
                         ["location_id"] = new AttributeValue { N = table.LocationId },
-                        ["table_id"] = new AttributeValue { S = payload.TableId },
+                        ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                         ["waiter_id"] = new AttributeValue { S = table.WaiterId },
                         ["customer_id"] = new AttributeValue { S = customerId },
                         ["status"] = new AttributeValue { S = "Reserved" },
@@ -174,14 +174,14 @@ public class Function
         return null;
     }
 
-    private async Task<TableMetadata?> GetTableAsync(string tableId)
+    private async Task<TableMetadata?> GetTableAsync(int tableId)
     {
         var response = await _dynamoDb.GetItemAsync(new GetItemRequest
         {
             TableName = _tablesTable,
             Key = new Dictionary<string, AttributeValue>
             {
-                ["table_id"] = new AttributeValue { S = tableId }
+                ["table_id"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
             },
             ConsistentRead = true
         });
@@ -202,7 +202,7 @@ public class Function
         };
     }
 
-    private static List<string> BuildLockKeys(string tableId, DateTime reservationStartUtc)
+    private static List<string> BuildLockKeys(int tableId, DateTime reservationStartUtc)
     {
         var keys = new List<string>();
         var minOffset = -(ReservationDurationMinutes + CleaningGapMinutes);
@@ -228,7 +228,7 @@ public class Function
 
     private sealed class CreateBookingRequest
     {
-        public string TableId { get; init; } = string.Empty;
+        public int TableId { get; init; }
         public int Guests { get; init; }
         public string ReservationStart { get; init; } = string.Empty;
     }
@@ -239,7 +239,7 @@ public class Function
         public string ReservationDate { get; init; } = string.Empty;
         public string ReservationStart { get; init; } = string.Empty;
         public string ReservationEnd { get; init; } = string.Empty;
-        public string TableId { get; init; } = string.Empty;
+        public int TableId { get; init; }
         public string WaiterId { get; init; } = string.Empty;
         public string CustomerId { get; init; } = string.Empty;
         public int Guests { get; init; }
