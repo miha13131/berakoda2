@@ -8,9 +8,21 @@
   "memory": 128,
   "timeout": 100,
   "lambda_path": "lambdas\\cancel-reservation",
-  "dependencies": [],
+  "dependencies": [
+    {
+      "resource_name": "Reservations",
+      "resource_type": "dynamodb_table"
+    },
+    {
+      "resource_name": "BookingLocks",
+      "resource_type": "dynamodb_table"
+    }
+  ],
   "event_sources": [],
-  "env_variables": {},
+  "env_variables": {
+    "RESERVATIONS_TABLE": "Reservations",
+    "BOOKING_LOCKS_TABLE": "BookingLocks"
+  },
   "publish_version": true,
   "alias": "${lambdas_alias_name}",
   "url_config": {},
