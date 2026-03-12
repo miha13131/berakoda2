@@ -136,15 +136,20 @@ public class Function
                 TransactItems = transactItems
             });
 
-            var responseBody = JsonSerializer.Serialize(new
+            var reservation = new ReservationDto
             {
-                reservationId,
-                status = "Reserved",
-                waiterId = table.WaiterId,
-                message = "Reservation created successfully."
-            });
+                ReservationId = reservationId,
+                ReservationDate = reservationDate,
+                ReservationStart = reservationStart.ToString("O", CultureInfo.InvariantCulture),
+                ReservationEnd = reservationEnd.ToString("O", CultureInfo.InvariantCulture),
+                TableId = payload.TableId,
+                WaiterId = table.WaiterId,
+                CustomerId = customerId,
+                Guests = payload.Guests,
+                Status = "Reserved"
+            };
 
-            return ResponseCreator.CreateResponse(201, "Created", responseBody);
+            return ResponseCreator.CreateResponse(201, "Created", reservation);
         }
         catch (TransactionCanceledException ex)
         {
@@ -226,5 +231,18 @@ public class Function
         public string TableId { get; init; } = string.Empty;
         public int Guests { get; init; }
         public string ReservationStart { get; init; } = string.Empty;
+    }
+
+    private sealed class ReservationDto
+    {
+        public string ReservationId { get; init; } = string.Empty;
+        public string ReservationDate { get; init; } = string.Empty;
+        public string ReservationStart { get; init; } = string.Empty;
+        public string ReservationEnd { get; init; } = string.Empty;
+        public string TableId { get; init; } = string.Empty;
+        public string WaiterId { get; init; } = string.Empty;
+        public string CustomerId { get; init; } = string.Empty;
+        public int Guests { get; init; }
+        public string Status { get; init; } = string.Empty;
     }
 }
