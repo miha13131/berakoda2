@@ -174,12 +174,31 @@ public class Function
         {
             ReservationId = reservationId,
             CustomerId = item.TryGetValue("customer_id", out var customerValue) ? customerValue.S : string.Empty,
-            TableId = item.TryGetValue("table_id", out var tableValue) ? tableValue.S : string.Empty,
+            TableId = GetTableId(item),
             ReservationStart = reservationStart
         };
     }
 
-    private static List<string> BuildLockKeys(string tableId, DateTime reservationStartUtc)
+    private static int GetTableId(IReadOnlyDictionary<string, AttributeValue> item)
+    {
+        if (!item.TryGetValue("table_id", out var tableValue)) return 0;
+
+        if (!string.IsNullOrWhiteSpace(tableValue.N) &&
+            int.TryParse(tableValue.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericId))
+        {
+            return numericId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(tableValue.S) &&
+            int.TryParse(tableValue.S, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stringId))
+        {
+            return stringId;
+        }
+
+        return 0;
+    }
+
+    private static List<string> BuildLockKeys(int tableId, DateTime reservationStartUtc)
     {
         var keys = new List<string>();
         var minOffset = -(ReservationDurationMinutes + CleaningGapMinutes);
@@ -200,7 +219,7 @@ public class Function
     {
         public string ReservationId { get; init; } = string.Empty;
         public string CustomerId { get; init; } = string.Empty;
-        public string TableId { get; init; } = string.Empty;
+        public int TableId { get; init; }
         public DateTime ReservationStart { get; init; }
     }
 }
