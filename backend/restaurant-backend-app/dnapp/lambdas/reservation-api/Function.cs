@@ -12,7 +12,7 @@ using shared;
 
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
 
-namespace ReservationApi;
+namespace SimpleLambdaFunction;
 
 public class Function
 {
@@ -42,12 +42,7 @@ public class Function
                 return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only POST is allowed.");
             }
 
-            var customerId = ResolveCustomerId(request);
-            if (string.IsNullOrWhiteSpace(customerId))
-            {
-                return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to create a reservation.");
-            }
-
+            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body) ?? "postman-anonymous";
             var pathLocationId = ResolveLocationIdFromPath(request);
 
             var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body ?? string.Empty,
@@ -58,10 +53,9 @@ public class Function
                 return ResponseCreator.CreateResponse(400, "Bad Request", "tableId, guests and reservationStart are required.");
             }
 
-            if (!DateTime.TryParse(payload.ReservationStart, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var reservationStart))
+            if (!TryParseReservationStart(payload.ReservationStart, out var reservationStart))
             {
-                return ResponseCreator.CreateResponse(400, "Bad Request", "reservationStart must be a valid ISO-8601 UTC date-time.");
+                return ResponseCreator.CreateResponse(400, "Bad Request", "reservationStart must be either yyyy-MM-dd#HH:mm or a valid ISO-8601 date-time.");
             }
 
             if (reservationStart < DateTime.UtcNow)
@@ -94,6 +88,9 @@ public class Function
             var reservationId = Guid.NewGuid().ToString("N");
             var reservationEnd = reservationStart.AddMinutes(ReservationDurationMinutes);
             var reservationDate = reservationStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var reservationStartLegacy = reservationStart.ToString("yyyy-MM-dd#HH:mm", CultureInfo.InvariantCulture);
+            var slotId = ResolveSlotId(reservationStart);
+            var reservationIdSk = $"{reservationDate}#{slotId}#{payload.TableId}";
             var lockKeys = BuildLockKeys(payload.TableId, reservationStart);
 
             var transactItems = new List<TransactWriteItem>();
@@ -124,18 +121,21 @@ public class Function
                     TableName = _reservationsTable,
                     Item = new Dictionary<string, AttributeValue>
                     {
+                        ["location_id"] = new AttributeValue { N = table.LocationId },
+                        ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk },
+                        ["date_time_start"] = new AttributeValue { S = reservationStartLegacy },
+                        ["is_available"] = new AttributeValue { BOOL = false },
+                        ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                         ["reservation_id"] = new AttributeValue { S = reservationId },
                         ["reservation_start"] = new AttributeValue { S = reservationStart.ToString("O", CultureInfo.InvariantCulture) },
                         ["reservation_end"] = new AttributeValue { S = reservationEnd.ToString("O", CultureInfo.InvariantCulture) },
                         ["reservation_date"] = new AttributeValue { S = reservationDate },
-                        ["location_id"] = new AttributeValue { N = table.LocationId },
-                        ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                         ["waiter_id"] = new AttributeValue { S = table.WaiterId },
                         ["customer_id"] = new AttributeValue { S = customerId },
                         ["status"] = new AttributeValue { S = "Reserved" },
                         ["guests"] = new AttributeValue { N = payload.Guests.ToString(CultureInfo.InvariantCulture) }
                     },
-                    ConditionExpression = "attribute_not_exists(reservation_id) AND attribute_not_exists(reservation_start)"
+                    ConditionExpression = "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
                 }
             });
 
@@ -180,6 +180,25 @@ public class Function
         if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
 
         return null;
+    }
+
+    private static string? ResolveCustomerIdFromBody(string? requestBody)
+    {
+        if (string.IsNullOrWhiteSpace(requestBody))
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = JsonSerializer.Deserialize<CreateBookingRequest>(requestBody,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return string.IsNullOrWhiteSpace(payload?.CustomerId) ? null : payload.CustomerId;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static int? ResolveLocationIdFromPath(APIGatewayProxyRequest request)
@@ -227,6 +246,33 @@ public class Function
         };
     }
 
+
+    private static bool TryParseReservationStart(string raw, out DateTime reservationStart)
+    {
+        if (DateTime.TryParseExact(raw, "yyyy-MM-dd#HH:mm", CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out reservationStart))
+        {
+            return true;
+        }
+
+        return DateTime.TryParse(raw, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out reservationStart);
+    }
+
+    private static int ResolveSlotId(DateTime reservationStart)
+    {
+        var time = reservationStart.ToString("HH:mm", CultureInfo.InvariantCulture);
+        return time switch
+        {
+            "10:30" => 1,
+            "12:15" => 2,
+            "14:00" => 3,
+            "15:45" => 4,
+            "17:30" => 5,
+            _ => 0
+        };
+    }
+
     private static List<string> BuildLockKeys(int tableId, DateTime reservationStartUtc)
     {
         var keys = new List<string>();
@@ -256,6 +302,7 @@ public class Function
         public int TableId { get; init; }
         public int Guests { get; init; }
         public string ReservationStart { get; init; } = string.Empty;
+        public string? CustomerId { get; init; }
     }
 
     private sealed class ReservationDto
