@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "name": "reservation-history",
+  "func_name": "ReservationHistory::ReservationHistory.Function::FunctionHandler",
+  "resource_type": "lambda",
+  "iam_role_name": "reservation-history-role",
+  "runtime": "dotnet8",
+  "memory": 128,
+  "timeout": 100,
+  "lambda_path": "lambdas\\reservation-history",
+  "dependencies": [
+    {
+      "resource_name": "Reservations",
+      "resource_type": "dynamodb_table"
+    }
+  ],
+  "event_sources": [],
+  "env_variables": {
+    "RESERVATIONS_TABLE": "Reservations",
+    "CUSTOMER_RESERVATIONS_INDEX": "CustomerReservationsIndex"
+  },
+  "publish_version": true,
+  "alias": "${lambdas_alias_name}",
+  "url_config": {},
+  "ephemeral_storage": 512,
+  "tags": {}
+}
