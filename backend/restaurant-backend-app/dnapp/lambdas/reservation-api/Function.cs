@@ -21,7 +21,7 @@ public class Function
     private readonly string _reservationsTable;
     private readonly string _bookingLocksTable;
 
-    private const int DefaultReservationDurationMinutes = 90;
+    private const int ReservationDurationMinutes = 90;
     private const int CleaningGapMinutes = 15;
     private const int LockBucketMinutes = 15;
 
@@ -48,15 +48,18 @@ public class Function
                 return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to create a reservation.");
             }
 
-            var payload = ParseRequestPayload(request);
+            var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body ?? string.Empty,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
             if (payload == null || string.IsNullOrWhiteSpace(payload.TableId) || payload.Guests <= 0)
             {
-                return ResponseCreator.CreateResponse(400, "Bad Request", "tableId, guests and date/startTime (or reservationStart) are required.");
+                return ResponseCreator.CreateResponse(400, "Bad Request", "tableId, guests and reservationStart are required.");
             }
 
-            if (!TryResolveReservationWindow(payload, out var reservationStart, out var reservationEnd, out var validationError))
+            if (!DateTime.TryParse(payload.ReservationStart, CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var reservationStart))
             {
-                return ResponseCreator.CreateResponse(400, "Bad Request", validationError);
+                return ResponseCreator.CreateResponse(400, "Bad Request", "reservationStart must be a valid ISO-8601 UTC date-time.");
             }
 
             if (reservationStart < DateTime.UtcNow)
@@ -81,8 +84,9 @@ public class Function
             }
 
             var reservationId = Guid.NewGuid().ToString("N");
+            var reservationEnd = reservationStart.AddMinutes(ReservationDurationMinutes);
             var reservationDate = reservationStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            var lockKeys = BuildLockKeys(payload.TableId, reservationStart, reservationEnd);
+            var lockKeys = BuildLockKeys(payload.TableId, reservationStart);
 
             var transactItems = new List<TransactWriteItem>();
 
@@ -98,7 +102,7 @@ public class Function
                             ["lock_id"] = new AttributeValue { S = lockKey },
                             ["reservation_id"] = new AttributeValue { S = reservationId },
                             ["table_id"] = new AttributeValue { S = payload.TableId },
-                            ["expires_at"] = new AttributeValue { N = new DateTimeOffset(reservationEnd.AddMinutes(CleaningGapMinutes)).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) }
+                            ["expires_at"] = new AttributeValue { N = new DateTimeOffset(reservationEnd.AddMinutes(CleaningGapMinutes)).ToUnixTimeSeconds().ToString() }
                         },
                         ConditionExpression = "attribute_not_exists(lock_id)"
                     }
@@ -123,7 +127,7 @@ public class Function
                         ["status"] = new AttributeValue { S = "Reserved" },
                         ["guests"] = new AttributeValue { N = payload.Guests.ToString(CultureInfo.InvariantCulture) }
                     },
-                    ConditionExpression = "attribute_not_exists(reservation_id)"
+                    ConditionExpression = "attribute_not_exists(reservation_id) AND attribute_not_exists(reservation_start)"
                 }
             });
 
@@ -132,21 +136,15 @@ public class Function
                 TransactItems = transactItems
             });
 
-            var createdReservation = new
+            var responseBody = JsonSerializer.Serialize(new
             {
                 reservationId,
-                customerId,
-                tableId = payload.TableId,
+                status = "Reserved",
                 waiterId = table.WaiterId,
-                locationId = table.LocationId,
-                reservationDate,
-                reservationStart = reservationStart.ToString("O", CultureInfo.InvariantCulture),
-                reservationEnd = reservationEnd.ToString("O", CultureInfo.InvariantCulture),
-                guests = payload.Guests,
-                status = "Reserved"
-            };
+                message = "Reservation created successfully."
+            });
 
-            return ResponseCreator.CreateResponse(201, "Created", createdReservation);
+            return ResponseCreator.CreateResponse(201, "Created", responseBody);
         }
         catch (TransactionCanceledException ex)
         {
@@ -158,115 +156,6 @@ public class Function
             context.Logger.LogError($"Error creating reservation: {ex.Message}");
             return ResponseCreator.CreateResponse(500, "Internal Server Error", "An error occurred.");
         }
-    }
-
-    private static CreateBookingRequest? ParseRequestPayload(APIGatewayProxyRequest request)
-    {
-        var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body ?? string.Empty,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new CreateBookingRequest();
-
-        var query = request.QueryStringParameters ?? new Dictionary<string, string>();
-        var path = request.PathParameters ?? new Dictionary<string, string>();
-
-        payload.TableId = FirstNotEmpty(payload.TableId, query.GetValueOrDefault("tableId"), path.GetValueOrDefault("id"));
-        payload.Date = FirstNotEmpty(payload.Date, query.GetValueOrDefault("date"));
-        payload.StartTime = FirstNotEmpty(payload.StartTime, query.GetValueOrDefault("startTime"), query.GetValueOrDefault("timeStart"));
-        payload.EndTime = FirstNotEmpty(payload.EndTime, query.GetValueOrDefault("endTime"), query.GetValueOrDefault("timeEnd"));
-
-        if (payload.Guests <= 0 && query.TryGetValue("guests", out var guestsRaw) &&
-            int.TryParse(guestsRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var guests))
-        {
-            payload.Guests = guests;
-        }
-
-        return payload;
-    }
-
-    private static bool TryResolveReservationWindow(CreateBookingRequest payload, out DateTime reservationStart, out DateTime reservationEnd, out string validationError)
-    {
-        validationError = string.Empty;
-        reservationStart = default;
-        reservationEnd = default;
-
-        if (TryParseIsoDateTime(payload.ReservationStart, out reservationStart))
-        {
-            reservationEnd = TryParseIsoDateTime(payload.ReservationEnd, out var parsedEnd)
-                ? parsedEnd
-                : reservationStart.AddMinutes(DefaultReservationDurationMinutes);
-
-            if (reservationEnd <= reservationStart)
-            {
-                validationError = "reservationEnd must be greater than reservationStart.";
-                return false;
-            }
-
-            return true;
-        }
-
-        if (string.IsNullOrWhiteSpace(payload.Date) || string.IsNullOrWhiteSpace(payload.StartTime))
-        {
-            validationError = "Provide reservationStart (ISO-8601) or date + startTime.";
-            return false;
-        }
-
-        if (!DateOnly.TryParseExact(payload.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
-        {
-            validationError = "date must be in yyyy-MM-dd format.";
-            return false;
-        }
-
-        if (!TryParseAmPmTime(payload.StartTime, out var startTime))
-        {
-            validationError = "startTime must be in format like 12:35p.m. or 12:35PM.";
-            return false;
-        }
-
-        reservationStart = date.ToDateTime(startTime, DateTimeKind.Utc);
-
-        if (TryParseAmPmTime(payload.EndTime, out var endTime))
-        {
-            reservationEnd = date.ToDateTime(endTime, DateTimeKind.Utc);
-        }
-        else
-        {
-            reservationEnd = reservationStart.AddMinutes(DefaultReservationDurationMinutes);
-        }
-
-        if (reservationEnd <= reservationStart)
-        {
-            validationError = "endTime must be greater than startTime.";
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryParseIsoDateTime(string? raw, out DateTime value)
-    {
-        return DateTime.TryParse(raw, CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out value);
-    }
-
-    private static bool TryParseAmPmTime(string? raw, out TimeOnly time)
-    {
-        time = default;
-        if (string.IsNullOrWhiteSpace(raw)) return false;
-
-        var normalized = raw.Trim()
-            .Replace(" ", string.Empty, StringComparison.Ordinal)
-            .Replace(".", string.Empty, StringComparison.Ordinal)
-            .ToUpperInvariant();
-
-        return TimeOnly.TryParseExact(normalized,
-            ["h:mmtt", "htt", "hh:mmtt", "hhmmtt"],
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.None,
-            out time);
-    }
-
-    private static string FirstNotEmpty(params string?[] values)
-    {
-        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
     }
 
     private static string? ResolveCustomerId(APIGatewayProxyRequest request)
@@ -308,14 +197,15 @@ public class Function
         };
     }
 
-    private static List<string> BuildLockKeys(string tableId, DateTime reservationStartUtc, DateTime reservationEndUtc)
+    private static List<string> BuildLockKeys(string tableId, DateTime reservationStartUtc)
     {
         var keys = new List<string>();
-        var lockStart = reservationStartUtc.AddMinutes(-CleaningGapMinutes);
-        var lockEnd = reservationEndUtc.AddMinutes(CleaningGapMinutes);
+        var minOffset = -(ReservationDurationMinutes + CleaningGapMinutes);
+        var maxOffset = ReservationDurationMinutes + CleaningGapMinutes;
 
-        for (var slot = lockStart; slot <= lockEnd; slot = slot.AddMinutes(LockBucketMinutes))
+        for (var offset = minOffset; offset <= maxOffset; offset += LockBucketMinutes)
         {
+            var slot = reservationStartUtc.AddMinutes(offset);
             var bucketMinute = (slot.Minute / LockBucketMinutes) * LockBucketMinutes;
             var bucket = new DateTime(slot.Year, slot.Month, slot.Day, slot.Hour, bucketMinute, 0, DateTimeKind.Utc);
             keys.Add($"{tableId}#{bucket:yyyyMMddHHmm}");
@@ -333,12 +223,8 @@ public class Function
 
     private sealed class CreateBookingRequest
     {
-        public string TableId { get; set; } = string.Empty;
-        public int Guests { get; set; }
+        public string TableId { get; init; } = string.Empty;
+        public int Guests { get; init; }
         public string ReservationStart { get; init; } = string.Empty;
-        public string ReservationEnd { get; init; } = string.Empty;
-        public string Date { get; set; } = string.Empty;
-        public string StartTime { get; set; } = string.Empty;
-        public string EndTime { get; set; } = string.Empty;
     }
 }
