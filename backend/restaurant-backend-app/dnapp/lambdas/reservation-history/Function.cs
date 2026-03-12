@@ -96,7 +96,7 @@ public class Function
             ReservationDate = GetString(item, "reservation_date"),
             ReservationStart = GetString(item, "reservation_start"),
             ReservationEnd = GetString(item, "reservation_end"),
-            TableId = GetString(item, "table_id"),
+            TableId = GetIntFromAttribute(item, "table_id"),
             WaiterId = GetString(item, "waiter_id"),
             Status = GetString(item, "status"),
             Guests = GetInt(item, "guests"),
@@ -147,6 +147,25 @@ public class Function
         return string.Empty;
     }
 
+    private static int GetIntFromAttribute(IReadOnlyDictionary<string, AttributeValue> item, string key)
+    {
+        if (!item.TryGetValue(key, out var attribute)) return 0;
+
+        if (!string.IsNullOrWhiteSpace(attribute.N) &&
+            int.TryParse(attribute.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericValue))
+        {
+            return numericValue;
+        }
+
+        if (!string.IsNullOrWhiteSpace(attribute.S) &&
+            int.TryParse(attribute.S, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stringValue))
+        {
+            return stringValue;
+        }
+
+        return 0;
+    }
+
     private static int GetInt(IReadOnlyDictionary<string, AttributeValue> item, string key)
     {
         if (!item.TryGetValue(key, out var attribute) || string.IsNullOrWhiteSpace(attribute.N)) return 0;
@@ -159,7 +178,7 @@ public class Function
         public string ReservationDate { get; init; } = string.Empty;
         public string ReservationStart { get; init; } = string.Empty;
         public string ReservationEnd { get; init; } = string.Empty;
-        public string TableId { get; init; } = string.Empty;
+        public int TableId { get; init; }
         public string WaiterId { get; init; } = string.Empty;
         public string LocationId { get; init; } = string.Empty;
         public string Status { get; init; } = string.Empty;
