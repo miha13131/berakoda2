@@ -48,6 +48,8 @@ public class Function
                 return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to create a reservation.");
             }
 
+            var pathLocationId = ResolveLocationIdFromPath(request);
+
             var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body ?? string.Empty,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
@@ -71,6 +73,12 @@ public class Function
             if (table == null)
             {
                 return ResponseCreator.CreateResponse(404, "Not Found", "Table not found.");
+            }
+
+            if (pathLocationId.HasValue && table.LocationId != pathLocationId.Value.ToString(CultureInfo.InvariantCulture))
+            {
+                return ResponseCreator.CreateResponse(400, "Bad Request",
+                    "Table does not belong to the location from path. Use the table from the same location.");
             }
 
             if (table.Capacity < payload.Guests)
@@ -172,6 +180,23 @@ public class Function
         if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
 
         return null;
+    }
+
+    private static int? ResolveLocationIdFromPath(APIGatewayProxyRequest request)
+    {
+        if (request?.PathParameters == null)
+        {
+            return null;
+        }
+
+        var pathParameters = request.PathParameters;
+        if (!pathParameters.TryGetValue("id", out var rawLocationId) &&
+            !pathParameters.TryGetValue("locationId", out rawLocationId))
+        {
+            return null;
+        }
+
+        return int.TryParse(rawLocationId, out var locationId) ? locationId : null;
     }
 
     private async Task<TableMetadata?> GetTableAsync(int tableId)
