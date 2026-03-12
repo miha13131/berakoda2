@@ -79,11 +79,17 @@
       {
         "resource_name": "locations-restaurant-slots",
         "resource_type": "lambda"
+      },
+      {
+        "resource_name": "reservation-api",
+        "resource_type": "lambda"
       }
     ],
     "resources": {
       "/auth/sign-in": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "POST": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -98,7 +104,9 @@
         }
       },
       "/auth/forgot-password": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "POST": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -113,7 +121,9 @@
         }
       },
       "/auth/confirm-password": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "POST": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -128,7 +138,9 @@
         }
       },
       "/auth/sign-up": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "POST": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -143,7 +155,9 @@
         }
       },
       "/auth/confirm-email": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "POST": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -158,7 +172,9 @@
         }
       },
       "/auth/resend-confirmation-code": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "POST": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -173,7 +189,9 @@
         }
       },
       "/auth/refresh-token": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "POST": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -188,7 +206,9 @@
         }
       },
       "/tables/available": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "GET": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -203,7 +223,9 @@
         }
       },
       "/locations": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "GET": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -218,7 +240,9 @@
         }
       },
       "/locations/select-options": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "GET": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -233,7 +257,9 @@
         }
       },
       "/locations/{id}/speciality-dishes": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "GET": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -250,7 +276,9 @@
         }
       },
       "/locations/{id}/feedbacks": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "GET": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -267,7 +295,9 @@
         }
       },
       "/locations/{id}/slots": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "GET": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -284,7 +314,9 @@
         }
       },
       "/locations/{id}/get-table": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "GET": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
@@ -301,13 +333,34 @@
         }
       },
       "/tables/dishes/popular": {
-        "enable_cors": { "state": true },
+        "enable_cors": {
+          "state": true
+        },
         "GET": {
           "authorization_type": "NONE",
           "integration_type": "lambda",
           "lambda_name": "dishes-list-of-popular-dishes",
           "api_key_required": false,
           "method_request_parameters": {},
+          "integration_request_body_template": {},
+          "responses": [],
+          "enable_proxy": true,
+          "integration_responses": [],
+          "default_error_pattern": true
+        }
+      },
+      "/bookings/client": {
+        "enable_cors": {
+          "state": true
+        },
+        "POST": {
+          "authorization_type": "COGNITO_USER_POOLS",
+          "integration_type": "lambda",
+          "lambda_name": "reservation-api",
+          "api_key_required": false,
+          "method_request_parameters": {
+            "method.request.header.Authorization": true
+          },
           "integration_request_body_template": {},
           "responses": [],
           "enable_proxy": true,
@@ -358,8 +411,6 @@
     "resource_type": "dynamodb_table",
     "hash_key_name": "reservation_id",
     "hash_key_type": "S",
-    "range_key_name": "reservation_start",
-    "range_key_type": "S",
     "billing_mode": "PAY_PER_REQUEST",
     "read_capacity": 1,
     "write_capacity": 1,
@@ -370,27 +421,6 @@
         "index_key_name": "location_id",
         "index_key_type": "N",
         "index_sort_key_name": "reservation_date",
-        "index_sort_key_type": "S"
-      },
-      {
-        "name": "TableReservationIndex",
-        "index_key_name": "table_id",
-        "index_key_type": "S",
-        "index_sort_key_name": "reservation_start",
-        "index_sort_key_type": "S"
-      },
-      {
-        "name": "CustomerReservationIndex",
-        "index_key_name": "customer_id",
-        "index_key_type": "S",
-        "index_sort_key_name": "reservation_start",
-        "index_sort_key_type": "S"
-      },
-      {
-        "name": "WaiterReservationIndex",
-        "index_key_name": "waiter_id",
-        "index_key_type": "S",
-        "index_sort_key_name": "reservation_start",
         "index_sort_key_type": "S"
       }
     ]
@@ -412,58 +442,6 @@
     "range_key_type": "N",
     "read_capacity": 1,
     "write_capacity": 1
-  },
-  "Pre-orders": {
-    "resource_type": "dynamodb_table",
-    "hash_key_name": "reservation_id",
-    "hash_key_type": "N",
-    "range_key_name": "pre-order_id",
-    "range_key_type": "N",
-    "read_capacity": 1,
-    "write_capacity": 1
-  },
-  "OrderItems": {
-    "resource_type": "dynamodb_table",
-    "hash_key_name": "pre-order_id",
-    "hash_key_type": "N",
-    "range_key_name": "dish_id",
-    "range_key_type": "N",
-    "read_capacity": 1,
-    "write_capacity": 1
-  },
-  "Reservations": {
-    "resource_type": "dynamodb_table",
-    "hash_key_name": "reservation_id",
-    "hash_key_type": "S",
-    "billing_mode": "PAY_PER_REQUEST",
-    "read_capacity": 1,
-    "write_capacity": 1,
-    "tags": {},
-    "global_indexes": [
-      {
-        "name": "LocationDateIndex",
-        "index_key_name": "location_id",
-        "index_key_type": "N",
-        "index_sort_key_name": "reservation_date",
-        "index_sort_key_type": "S"
-      }
-    ]
-  },
-  "Tables": {
-    "resource_type": "dynamodb_table",
-    "hash_key_name": "table_id",
-    "hash_key_type": "S",
-    "billing_mode": "PAY_PER_REQUEST",
-    "read_capacity": 1,
-    "write_capacity": 1,
-    "tags": {},
-    "global_indexes": [
-      {
-        "name": "LocationIndex",
-        "index_key_name": "location_id",
-        "index_key_type": "N"
-      }
-    ]
   },
   "waiters-list": {
     "resource_type": "dynamodb_table",
