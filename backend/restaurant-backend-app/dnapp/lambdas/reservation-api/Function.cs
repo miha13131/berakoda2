@@ -106,7 +106,7 @@ public class Function
                         {
                             ["lock_id"] = new AttributeValue { S = lockKey },
                             ["reservation_id"] = new AttributeValue { S = reservationId },
-                            ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
+                            ["table_id"] = new AttributeValue { S = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                             ["expires_at"] = new AttributeValue { N = new DateTimeOffset(reservationEnd.AddMinutes(CleaningGapMinutes)).ToUnixTimeSeconds().ToString() }
                         },
                         ConditionExpression = "attribute_not_exists(lock_id)"
@@ -125,7 +125,7 @@ public class Function
                         ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk },
                         ["date_time_start"] = new AttributeValue { S = reservationStartLegacy },
                         ["is_available"] = new AttributeValue { BOOL = false },
-                        ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
+                        ["table_id"] = new AttributeValue { S = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                         ["reservation_id"] = new AttributeValue { S = reservationId },
                         ["reservation_start"] = new AttributeValue { S = reservationStart.ToString("O", CultureInfo.InvariantCulture) },
                         ["reservation_end"] = new AttributeValue { S = reservationEnd.ToString("O", CultureInfo.InvariantCulture) },
@@ -167,7 +167,7 @@ public class Function
         catch (Exception ex)
         {
             context.Logger.LogError($"Error creating reservation: {ex.Message}");
-            return ResponseCreator.CreateResponse(500, "Internal Server Error", "An error occurred.");
+            return ResponseCreator.CreateResponse(500, "Internal Server Error", $"An error occurred: {ex.Message}");
         }
     }
 
@@ -225,7 +225,7 @@ public class Function
             TableName = _tablesTable,
             Key = new Dictionary<string, AttributeValue>
             {
-                ["table_id"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
+                ["table_id"] = new AttributeValue { S = tableId.ToString(CultureInfo.InvariantCulture) }
             },
             ConsistentRead = true
         });
@@ -234,8 +234,8 @@ public class Function
 
         var item = response.Item;
         var waiterId = item.ContainsKey("waiter_id") ? item["waiter_id"].S : string.Empty;
-        var locationId = item.ContainsKey("location_id") ? item["location_id"].N : "0";
-        var capacityValue = item.ContainsKey("capacity") ? item["capacity"].N : "0";
+        var locationId = GetNumericOrString(item, "location_id", "0");
+        var capacityValue = GetNumericOrString(item, "capacity", "0");
         _ = int.TryParse(capacityValue, out var capacity);
 
         return new TableMetadata
@@ -244,6 +244,20 @@ public class Function
             LocationId = locationId,
             Capacity = capacity
         };
+    }
+
+
+    private static string GetNumericOrString(IReadOnlyDictionary<string, AttributeValue> item, string key, string defaultValue)
+    {
+        if (!item.TryGetValue(key, out var value))
+        {
+            return defaultValue;
+        }
+
+        if (!string.IsNullOrWhiteSpace(value.N)) return value.N;
+        if (!string.IsNullOrWhiteSpace(value.S)) return value.S;
+
+        return defaultValue;
     }
 
 
