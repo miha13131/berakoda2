@@ -93,6 +93,12 @@ public class Function
             var reservationIdSk = $"{reservationDate}#{slotId}#{payload.TableId}";
             var lockKeys = BuildLockKeys(payload.TableId, reservationStart);
 
+            var hasDuplicate = await HasDuplicateReservationAsync(payload.TableId, reservationStartLegacy);
+            if (hasDuplicate)
+            {
+                return ResponseCreator.CreateResponse(409, "Conflict", "A reservation for this table at the selected date and time already exists.");
+            }
+
             var transactItems = new List<TransactWriteItem>();
 
             foreach (var lockKey in lockKeys)
@@ -302,6 +308,43 @@ public class Function
         }
 
         return keys.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    private async Task<bool> HasDuplicateReservationAsync(int tableId, string reservationStartLegacy)
+    {
+        Dictionary<string, AttributeValue>? lastEvaluatedKey = null;
+
+        do
+        {
+            var response = await _dynamoDb.ScanAsync(new ScanRequest
+            {
+                TableName = _reservationsTable,
+                ConsistentRead = true,
+                ProjectionExpression = "reservation_id",
+                FilterExpression = "table_id = :tableId AND date_time_start = :reservationStart AND (attribute_not_exists(#status) OR #status = :reserved)",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    ["#status"] = "status"
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":tableId"] = new AttributeValue { S = tableId.ToString(CultureInfo.InvariantCulture) },
+                    [":reservationStart"] = new AttributeValue { S = reservationStartLegacy },
+                    [":reserved"] = new AttributeValue { S = "Reserved" }
+                },
+                ExclusiveStartKey = lastEvaluatedKey,
+                Limit = 1
+            });
+
+            if (response.Count > 0)
+            {
+                return true;
+            }
+
+            lastEvaluatedKey = response.LastEvaluatedKey;
+        } while (lastEvaluatedKey is { Count: > 0 });
+
+        return false;
     }
 
     private sealed class TableMetadata
