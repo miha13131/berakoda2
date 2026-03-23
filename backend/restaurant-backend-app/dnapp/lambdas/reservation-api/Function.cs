@@ -12,7 +12,7 @@ using shared;
 
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
 
-namespace SimpleLambdaFunction;
+namespace ReservationApi;
 
 public class Function
 {
@@ -33,6 +33,14 @@ public class Function
         _bookingLocksTable = Environment.GetEnvironmentVariable("BOOKING_LOCKS_TABLE") ?? "BookingLocks";
     }
 
+    public Function(IAmazonDynamoDB dynamoDb, string tablesTable = "Tables", string reservationsTable = "Reservations", string bookingLocksTable = "BookingLocks")
+    {
+        _dynamoDb = dynamoDb;
+        _tablesTable = tablesTable;
+        _reservationsTable = reservationsTable;
+        _bookingLocksTable = bookingLocksTable;
+    }
+
     public async Task<APIGatewayProxyResponse> FunctionHandler(APIGatewayProxyRequest request, ILambdaContext context)
     {
         try
@@ -42,10 +50,18 @@ public class Function
                 return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only POST is allowed.");
             }
 
-            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body) ?? "postman-anonymous";
+            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body);
+            if (string.IsNullOrWhiteSpace(customerId))
+                return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to make a reservation.");
+
             var pathLocationId = ResolveLocationIdFromPath(request);
 
-            var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body ?? string.Empty,
+            if (string.IsNullOrWhiteSpace(request.Body))
+            {
+                return ResponseCreator.CreateResponse(400, "Bad Request", "tableId, guests and reservationStart are required.");
+            }
+
+            var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
             if (payload == null || payload.TableId <= 0 || payload.Guests <= 0)
@@ -88,16 +104,9 @@ public class Function
             var reservationId = Guid.NewGuid().ToString("N");
             var reservationEnd = reservationStart.AddMinutes(ReservationDurationMinutes);
             var reservationDate = reservationStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            var reservationStartLegacy = reservationStart.ToString("yyyy-MM-dd#HH:mm", CultureInfo.InvariantCulture);
-            var slotId = ResolveSlotId(reservationStart);
-            var reservationIdSk = $"{reservationDate}#{slotId}#{payload.TableId}";
+            var dateTimeStart = $"{reservationDate}#{reservationStart.ToString("HH:mm", CultureInfo.InvariantCulture)}";
+            var reservationIdSk = $"{dateTimeStart}#{payload.TableId}";
             var lockKeys = BuildLockKeys(payload.TableId, reservationStart);
-
-            var hasDuplicate = await HasDuplicateReservationAsync(payload.TableId, reservationStartLegacy);
-            if (hasDuplicate)
-            {
-                return ResponseCreator.CreateResponse(409, "Conflict", "A reservation for this table at the selected date and time already exists.");
-            }
 
             var transactItems = new List<TransactWriteItem>();
 
@@ -129,8 +138,7 @@ public class Function
                     {
                         ["location_id"] = new AttributeValue { N = table.LocationId },
                         ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk },
-                        ["date_time_start"] = new AttributeValue { S = reservationStartLegacy },
-                        ["is_available"] = new AttributeValue { BOOL = false },
+                        ["date_time_start"] = new AttributeValue { S = dateTimeStart },
                         ["table_id"] = new AttributeValue { S = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                         ["reservation_id"] = new AttributeValue { S = reservationId },
                         ["reservation_start"] = new AttributeValue { S = reservationStart.ToString("O", CultureInfo.InvariantCulture) },
@@ -279,20 +287,6 @@ public class Function
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out reservationStart);
     }
 
-    private static int ResolveSlotId(DateTime reservationStart)
-    {
-        var time = reservationStart.ToString("HH:mm", CultureInfo.InvariantCulture);
-        return time switch
-        {
-            "10:30" => 1,
-            "12:15" => 2,
-            "14:00" => 3,
-            "15:45" => 4,
-            "17:30" => 5,
-            _ => 0
-        };
-    }
-
     private static List<string> BuildLockKeys(int tableId, DateTime reservationStartUtc)
     {
         var keys = new List<string>();
@@ -308,43 +302,6 @@ public class Function
         }
 
         return keys.Distinct(StringComparer.Ordinal).ToList();
-    }
-
-    private async Task<bool> HasDuplicateReservationAsync(int tableId, string reservationStartLegacy)
-    {
-        Dictionary<string, AttributeValue>? lastEvaluatedKey = null;
-
-        do
-        {
-            var response = await _dynamoDb.ScanAsync(new ScanRequest
-            {
-                TableName = _reservationsTable,
-                ConsistentRead = true,
-                ProjectionExpression = "reservation_id",
-                FilterExpression = "table_id = :tableId AND date_time_start = :reservationStart AND (attribute_not_exists(#status) OR #status = :reserved)",
-                ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    ["#status"] = "status"
-                },
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    [":tableId"] = new AttributeValue { S = tableId.ToString(CultureInfo.InvariantCulture) },
-                    [":reservationStart"] = new AttributeValue { S = reservationStartLegacy },
-                    [":reserved"] = new AttributeValue { S = "Reserved" }
-                },
-                ExclusiveStartKey = lastEvaluatedKey,
-                Limit = 1
-            });
-
-            if (response.Count > 0)
-            {
-                return true;
-            }
-
-            lastEvaluatedKey = response.LastEvaluatedKey;
-        } while (lastEvaluatedKey is { Count: > 0 });
-
-        return false;
     }
 
     private sealed class TableMetadata
