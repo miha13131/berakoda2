@@ -25,6 +25,7 @@ public class Function
     private const int ReservationDurationMinutes = 90;
     private const int CleaningGapMinutes = 15;
     private const int LockBucketMinutes = 15;
+    private const string AnonymousCustomerId = "guest-anonymous";
 
     public Function()
     {
@@ -51,9 +52,7 @@ public class Function
                 return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only POST is allowed.");
             }
 
-            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body);
-            if (string.IsNullOrWhiteSpace(customerId))
-                return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to make a reservation.");
+            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body) ?? AnonymousCustomerId;
 
             var pathLocationId = ResolveLocationIdFromPath(request);
 
