@@ -258,19 +258,19 @@ public class Function
 
     private async Task<TableMetadata?> GetTableAsync(int tableId)
     {
-        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
+        Dictionary<string, AttributeValue>? item = null;
+
+        try
         {
-            TableName = _tablesTable,
-            Key = new Dictionary<string, AttributeValue>
+            var getItemResponse = await _dynamoDb.GetItemAsync(new GetItemRequest
             {
                 ["table_id"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
             },
             ConsistentRead = true
         });
 
-        if (response.Item == null || response.Item.Count == 0) return null;
+        if (item == null || item.Count == 0) return null;
 
-        var item = response.Item;
         var waiterId = item.ContainsKey("waiter_id") ? item["waiter_id"].S : string.Empty;
         var locationId = GetNumericOrString(item, "location_id", "0");
         var capacityValue = GetNumericOrString(item, "capacity", "0");
