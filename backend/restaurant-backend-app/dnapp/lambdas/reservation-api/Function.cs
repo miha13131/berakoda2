@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -24,6 +25,7 @@ public class Function
     private const int ReservationDurationMinutes = 90;
     private const int CleaningGapMinutes = 15;
     private const int LockBucketMinutes = 15;
+    private const string AnonymousCustomerId = "guest-anonymous";
 
     public Function()
     {
@@ -50,9 +52,7 @@ public class Function
                 return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only POST is allowed.");
             }
 
-            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body);
-            if (string.IsNullOrWhiteSpace(customerId))
-                return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to make a reservation.");
+            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body) ?? AnonymousCustomerId;
 
             var pathLocationId = ResolveLocationIdFromPath(request);
 
@@ -139,7 +139,7 @@ public class Function
                         ["location_id"] = new AttributeValue { N = table.LocationId },
                         ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk },
                         ["date_time_start"] = new AttributeValue { S = dateTimeStart },
-                        ["table_id"] = new AttributeValue { S = payload.TableId.ToString(CultureInfo.InvariantCulture) },
+                        ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                         ["reservation_id"] = new AttributeValue { S = reservationId },
                         ["reservation_start"] = new AttributeValue { S = reservationStart.ToString("O", CultureInfo.InvariantCulture) },
                         ["reservation_end"] = new AttributeValue { S = reservationEnd.ToString("O", CultureInfo.InvariantCulture) },
@@ -188,10 +188,34 @@ public class Function
     private static string? ResolveCustomerId(APIGatewayProxyRequest request)
     {
         var claims = request?.RequestContext?.Authorizer?.Claims;
-        if (claims == null) return null;
+        if (claims != null)
+        {
+            if (claims.TryGetValue("sub", out var sub) && !string.IsNullOrWhiteSpace(sub)) return sub;
+            if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
+        }
 
-        if (claims.TryGetValue("sub", out var sub) && !string.IsNullOrWhiteSpace(sub)) return sub;
-        if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
+        var authHeader = request?.Headers?.FirstOrDefault(h => string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase)).Value;
+        if (string.IsNullOrWhiteSpace(authHeader)) return null;
+
+        var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? authHeader["Bearer ".Length..].Trim()
+            : authHeader.Trim();
+
+        if (string.IsNullOrWhiteSpace(token)) return null;
+
+        try
+        {
+            var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+            var subClaim = jwt.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+            if (!string.IsNullOrWhiteSpace(subClaim)) return subClaim;
+
+            var emailClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
+            if (!string.IsNullOrWhiteSpace(emailClaim)) return emailClaim;
+        }
+        catch
+        {
+            return null;
+        }
 
         return null;
     }
@@ -234,19 +258,51 @@ public class Function
 
     private async Task<TableMetadata?> GetTableAsync(int tableId)
     {
-        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
+        Dictionary<string, AttributeValue>? item = null;
+
+        try
         {
-            TableName = _tablesTable,
-            Key = new Dictionary<string, AttributeValue>
+            var getItemResponse = await _dynamoDb.GetItemAsync(new GetItemRequest
             {
-                ["table_id"] = new AttributeValue { S = tableId.ToString(CultureInfo.InvariantCulture) }
-            },
-            ConsistentRead = true
-        });
+                TableName = _tablesTable,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    ["table_id"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
+                },
+                ConsistentRead = true
+            });
 
-        if (response.Item == null || response.Item.Count == 0) return null;
+            if (getItemResponse.Item is { Count: > 0 })
+            {
+                item = getItemResponse.Item;
+            }
+        }
+        catch (AmazonDynamoDBException ex) when (
+            ex.Message.Contains("provided key element does not match the schema", StringComparison.OrdinalIgnoreCase))
+        {
+            // Fallback for environments where Tables has a different primary key schema
+            // (e.g. partition key location_id + sort key table_id).
+        }
 
-        var item = response.Item;
+        if (item == null)
+        {
+            var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
+            {
+                TableName = _tablesTable,
+                FilterExpression = "table_id = :tableId",
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":tableId"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
+                },
+                Limit = 1,
+                ConsistentRead = true
+            });
+
+            item = scanResponse.Items.FirstOrDefault();
+        }
+
+        if (item == null || item.Count == 0) return null;
+
         var waiterId = item.ContainsKey("waiter_id") ? item["waiter_id"].S : string.Empty;
         var locationId = GetNumericOrString(item, "location_id", "0");
         var capacityValue = GetNumericOrString(item, "capacity", "0");
