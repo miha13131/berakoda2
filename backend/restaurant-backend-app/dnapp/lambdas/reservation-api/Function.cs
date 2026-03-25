@@ -139,7 +139,7 @@ public class Function
                         ["location_id"] = new AttributeValue { N = table.LocationId },
                         ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk },
                         ["date_time_start"] = new AttributeValue { S = dateTimeStart },
-                        ["table_id"] = new AttributeValue { S = payload.TableId.ToString(CultureInfo.InvariantCulture) },
+                        ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                         ["reservation_id"] = new AttributeValue { S = reservationId },
                         ["reservation_start"] = new AttributeValue { S = reservationStart.ToString("O", CultureInfo.InvariantCulture) },
                         ["reservation_end"] = new AttributeValue { S = reservationEnd.ToString("O", CultureInfo.InvariantCulture) },
@@ -263,7 +263,7 @@ public class Function
             TableName = _tablesTable,
             Key = new Dictionary<string, AttributeValue>
             {
-                ["table_id"] = new AttributeValue { S = tableId.ToString(CultureInfo.InvariantCulture) }
+                ["table_id"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
             },
             ConsistentRead = true
         });
