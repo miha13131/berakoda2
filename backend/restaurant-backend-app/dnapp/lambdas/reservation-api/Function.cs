@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -24,6 +25,7 @@ public class Function
     private const int ReservationDurationMinutes = 90;
     private const int CleaningGapMinutes = 15;
     private const int LockBucketMinutes = 15;
+    private const string AnonymousCustomerId = "guest-anonymous";
 
     public Function()
     {
@@ -50,9 +52,7 @@ public class Function
                 return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only POST is allowed.");
             }
 
-            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body);
-            if (string.IsNullOrWhiteSpace(customerId))
-                return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to make a reservation.");
+            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body) ?? AnonymousCustomerId;
 
             var pathLocationId = ResolveLocationIdFromPath(request);
 
@@ -188,10 +188,34 @@ public class Function
     private static string? ResolveCustomerId(APIGatewayProxyRequest request)
     {
         var claims = request?.RequestContext?.Authorizer?.Claims;
-        if (claims == null) return null;
+        if (claims != null)
+        {
+            if (claims.TryGetValue("sub", out var sub) && !string.IsNullOrWhiteSpace(sub)) return sub;
+            if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
+        }
 
-        if (claims.TryGetValue("sub", out var sub) && !string.IsNullOrWhiteSpace(sub)) return sub;
-        if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
+        var authHeader = request?.Headers?.FirstOrDefault(h => string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase)).Value;
+        if (string.IsNullOrWhiteSpace(authHeader)) return null;
+
+        var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? authHeader["Bearer ".Length..].Trim()
+            : authHeader.Trim();
+
+        if (string.IsNullOrWhiteSpace(token)) return null;
+
+        try
+        {
+            var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+            var subClaim = jwt.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+            if (!string.IsNullOrWhiteSpace(subClaim)) return subClaim;
+
+            var emailClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
+            if (!string.IsNullOrWhiteSpace(emailClaim)) return emailClaim;
+        }
+        catch
+        {
+            return null;
+        }
 
         return null;
     }
