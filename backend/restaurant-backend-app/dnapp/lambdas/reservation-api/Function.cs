@@ -264,42 +264,10 @@ public class Function
         {
             var getItemResponse = await _dynamoDb.GetItemAsync(new GetItemRequest
             {
-                TableName = _tablesTable,
-                Key = new Dictionary<string, AttributeValue>
-                {
-                    ["table_id"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
-                },
-                ConsistentRead = true
-            });
-
-            if (getItemResponse.Item is { Count: > 0 })
-            {
-                item = getItemResponse.Item;
-            }
-        }
-        catch (AmazonDynamoDBException ex) when (
-            ex.Message.Contains("provided key element does not match the schema", StringComparison.OrdinalIgnoreCase))
-        {
-            // Fallback for environments where Tables has a different primary key schema
-            // (e.g. partition key location_id + sort key table_id).
-        }
-
-        if (item == null)
-        {
-            var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
-            {
-                TableName = _tablesTable,
-                FilterExpression = "table_id = :tableId",
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    [":tableId"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
-                },
-                Limit = 1,
-                ConsistentRead = true
-            });
-
-            item = scanResponse.Items.FirstOrDefault();
-        }
+                ["table_id"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
+            },
+            ConsistentRead = true
+        });
 
         if (item == null || item.Count == 0) return null;
 
