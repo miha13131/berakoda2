@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Threading.Tasks;
 using Amazon.DynamoDBv2;
@@ -59,7 +60,10 @@ public class Function
                 return ResponseCreator.CreateResponse(400, "Bad Request", "Reservation id is required in path parameter {id}.");
             }
 
-            var reservation = await GetReservationAsync(reservationId);
+            var locationIdFromRequest = ResolveLocationId(request);
+            var reservationIdSkFromRequest = ResolveReservationIdSk(request);
+
+            var reservation = await GetReservationAsync(reservationId, locationIdFromRequest, reservationIdSkFromRequest);
             if (reservation == null)
             {
                 return ResponseCreator.CreateResponse(404, "Not Found", "Reservation not found.");
@@ -77,6 +81,8 @@ public class Function
                     "Cancellation is not allowed less than 30 minutes before reservation start time.");
             }
 
+            var reservationDeleteKey = BuildReservationDeleteKey(reservation);
+
             var transactItems = new List<TransactWriteItem>
             {
                 new()
@@ -84,11 +90,8 @@ public class Function
                     Delete = new Delete
                     {
                         TableName = _reservationsTable,
-                        Key = new Dictionary<string, AttributeValue>
-                        {
-                            ["reservation_id"] = new AttributeValue { S = reservation.ReservationId }
-                        },
-                        ConditionExpression = "attribute_exists(reservation_id) AND customer_id = :customerId",
+                        Key = reservationDeleteKey,
+                        ConditionExpression = "customer_id = :customerId",
                         ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                         {
                             [":customerId"] = new AttributeValue { S = customerId }
@@ -124,6 +127,11 @@ public class Function
             context.Logger.LogWarning($"Reservation cancellation transaction cancelled: {ex.Message}");
             return ResponseCreator.CreateResponse(409, "Conflict", "Reservation cannot be cancelled at this time.");
         }
+        catch (AmazonDynamoDBException ex)
+        {
+            context.Logger.LogError($"DynamoDB error cancelling reservation: {ex.Message}");
+            return ResponseCreator.CreateResponse(500, "Internal Server Error", "DynamoDB operation failed during cancellation.");
+        }
         catch (Exception ex)
         {
             context.Logger.LogError($"Error cancelling reservation: {ex.Message}");
@@ -134,10 +142,35 @@ public class Function
     private static string? ResolveCustomerId(APIGatewayProxyRequest request)
     {
         var claims = request?.RequestContext?.Authorizer?.Claims;
-        if (claims == null) return null;
+        if (claims != null)
+        {
+            if (claims.TryGetValue("sub", out var sub) && !string.IsNullOrWhiteSpace(sub)) return sub;
+            if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
+        }
 
-        if (claims.TryGetValue("sub", out var sub) && !string.IsNullOrWhiteSpace(sub)) return sub;
-        if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
+        var authHeader = request?.Headers?.FirstOrDefault(h =>
+            string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase)).Value;
+        if (string.IsNullOrWhiteSpace(authHeader)) return null;
+
+        var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? authHeader["Bearer ".Length..].Trim()
+            : authHeader.Trim();
+
+        if (string.IsNullOrWhiteSpace(token)) return null;
+
+        try
+        {
+            var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+            var subClaim = jwt.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+            if (!string.IsNullOrWhiteSpace(subClaim)) return subClaim;
+
+            var emailClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
+            if (!string.IsNullOrWhiteSpace(emailClaim)) return emailClaim;
+        }
+        catch
+        {
+            return null;
+        }
 
         return null;
     }
@@ -147,29 +180,96 @@ public class Function
         if (request.PathParameters == null) return null;
 
         if (request.PathParameters.TryGetValue("id", out var id) && !string.IsNullOrWhiteSpace(id)) return id;
+        if (request.PathParameters.TryGetValue("reservation_id", out var reservationIdSnakeCase) && !string.IsNullOrWhiteSpace(reservationIdSnakeCase)) return reservationIdSnakeCase;
         if (request.PathParameters.TryGetValue("reservationId", out var reservationId) && !string.IsNullOrWhiteSpace(reservationId)) return reservationId;
 
         return null;
     }
 
-    private async Task<ReservationData?> GetReservationAsync(string reservationId)
+    private static string? ResolveLocationId(APIGatewayProxyRequest request)
     {
-        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
+        if (request.PathParameters != null &&
+            request.PathParameters.TryGetValue("location_id", out var locationIdFromPath) &&
+            !string.IsNullOrWhiteSpace(locationIdFromPath))
+        {
+            return locationIdFromPath;
+        }
+
+        if (request.QueryStringParameters != null &&
+            request.QueryStringParameters.TryGetValue("location_id", out var locationIdFromQuery) &&
+            !string.IsNullOrWhiteSpace(locationIdFromQuery))
+        {
+            return locationIdFromQuery;
+        }
+
+        return null;
+    }
+
+    private static string? ResolveReservationIdSk(APIGatewayProxyRequest request)
+    {
+        if (request.PathParameters != null &&
+            request.PathParameters.TryGetValue("reservation_id_sk", out var reservationIdSkFromPath) &&
+            !string.IsNullOrWhiteSpace(reservationIdSkFromPath))
+        {
+            return reservationIdSkFromPath;
+        }
+
+        if (request.QueryStringParameters != null &&
+            request.QueryStringParameters.TryGetValue("reservation_id_sk", out var reservationIdSkFromQuery) &&
+            !string.IsNullOrWhiteSpace(reservationIdSkFromQuery))
+        {
+            return reservationIdSkFromQuery;
+        }
+
+        return null;
+    }
+
+    private async Task<ReservationData?> GetReservationAsync(string reservationId, string? locationId, string? reservationIdSk)
+    {
+        if (!string.IsNullOrWhiteSpace(locationId) && !string.IsNullOrWhiteSpace(reservationIdSk))
+        {
+            var getResponse = await _dynamoDb.GetItemAsync(new GetItemRequest
+            {
+                TableName = _reservationsTable,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    ["location_id"] = new AttributeValue { N = locationId },
+                    ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk }
+                },
+                ConsistentRead = true
+            });
+
+            var getItem = getResponse.Item;
+            if (getItem == null || getItem.Count == 0)
+            {
+                return null;
+            }
+
+            return ParseReservationItem(getItem, reservationId);
+        }
+
+        var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
         {
             TableName = _reservationsTable,
-            Key = new Dictionary<string, AttributeValue>
+            FilterExpression = "reservation_id = :reservationId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
-                ["reservation_id"] = new AttributeValue { S = reservationId }
+                [":reservationId"] = new AttributeValue { S = reservationId }
             },
-            ConsistentRead = true
+            Limit = 1
         });
 
-        if (response.Item == null || response.Item.Count == 0)
+        var item = scanResponse.Items.FirstOrDefault();
+        if (item == null || item.Count == 0)
         {
             return null;
         }
 
-        var item = response.Item;
+        return ParseReservationItem(item, reservationId);
+    }
+
+    private static ReservationData ParseReservationItem(IReadOnlyDictionary<string, AttributeValue> item, string reservationId)
+    {
         if (!item.TryGetValue("reservation_start", out var reservationStartValue) ||
             !DateTime.TryParse(reservationStartValue.S, CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var reservationStart))
@@ -177,12 +277,29 @@ public class Function
             throw new InvalidOperationException("Reservation has invalid reservation_start value.");
         }
 
+        if (!item.TryGetValue("location_id", out var locationIdValue) || string.IsNullOrWhiteSpace(locationIdValue.N) ||
+            !item.TryGetValue("reservation_id_sk", out var reservationIdSkValue) || string.IsNullOrWhiteSpace(reservationIdSkValue.S))
+        {
+            throw new InvalidOperationException("Reservation item misses composite keys location_id/reservation_id_sk.");
+        }
+
         return new ReservationData
         {
             ReservationId = reservationId,
+            ReservationIdSk = reservationIdSkValue.S,
+            LocationId = locationIdValue.N,
             CustomerId = item.TryGetValue("customer_id", out var customerValue) ? customerValue.S : string.Empty,
             TableId = GetTableId(item),
             ReservationStart = reservationStart
+        };
+    }
+
+    private static Dictionary<string, AttributeValue> BuildReservationDeleteKey(ReservationData reservation)
+    {
+        return new Dictionary<string, AttributeValue>
+        {
+            ["location_id"] = new AttributeValue { N = reservation.LocationId },
+            ["reservation_id_sk"] = new AttributeValue { S = reservation.ReservationIdSk }
         };
     }
 
@@ -225,8 +342,11 @@ public class Function
     private sealed class ReservationData
     {
         public string ReservationId { get; init; } = string.Empty;
+        public string ReservationIdSk { get; init; } = string.Empty;
+        public string LocationId { get; init; } = string.Empty;
         public string CustomerId { get; init; } = string.Empty;
         public int TableId { get; init; }
         public DateTime ReservationStart { get; init; }
     }
 }
+
