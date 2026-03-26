@@ -70,10 +70,10 @@ public class Function
             var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-            if (payload == null || payload.TableId <= 0 || payload.Guests <= 0)
+            if (payload == null || payload.TableId <= 0 || payload.Guests <= 0 || payload.SlotId <= 0)
             {
                 return ResponseCreator.CreateResponse(400, "Bad Request",
-                    "tableId, guests and reservationStart are required.");
+                    "tableId, guests, slot and reservationStart are required.");
             }
 
             if (!TryParseReservationStart(payload.ReservationStart, out var reservationStart))
@@ -115,7 +115,7 @@ public class Function
             var reservationEnd = reservationStart.AddMinutes(ReservationDurationMinutes);
             var reservationDate = reservationStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var dateTimeStart = $"{reservationDate}#{reservationStart.ToString("HH:mm", CultureInfo.InvariantCulture)}";
-            var reservationIdSk = $"{dateTimeStart}#{payload.TableId}";
+            var reservationIdSk = $"{reservationDate}#{payload.SlotId}#{payload.TableId}";
             var lockKeys = BuildLockKeys(payload.TableId, reservationStart);
 
             var transactItems = new List<TransactWriteItem>();
@@ -365,6 +365,7 @@ public class Function
     {
         public int TableId { get; init; }
         public int Guests { get; init; }
+        public int SlotId { get; init; }
         public string ReservationStart { get; init; } = string.Empty;
         public string? CustomerId { get; init; }
     }
