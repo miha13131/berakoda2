@@ -240,12 +240,11 @@ public class Function
             });
 
             var getItem = getResponse.Item;
-            if (getItem == null || getItem.Count == 0)
+            if (getItem != null && getItem.Count > 0)
             {
-                return null;
+                return ParseReservationItem(getItem, reservationId);
             }
 
-            return ParseReservationItem(getItem, reservationId);
         }
 
         var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
