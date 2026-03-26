@@ -104,6 +104,7 @@ public class Function
             ReservationStart = GetString(item, "reservation_start"),
             ReservationEnd = GetString(item, "reservation_end"),
             TableId = GetIntFromAttribute(item, "table_id"),
+            SlotId = GetSlotId(item),
             WaiterId = GetString(item, "waiter_id"),
             Status = GetString(item, "status"),
             Guests = GetInt(item, "guests"),
@@ -179,6 +180,30 @@ public class Function
         return int.TryParse(attribute.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0;
     }
 
+    private static int GetSlotId(IReadOnlyDictionary<string, AttributeValue> item)
+    {
+        var explicitSlotId = GetIntFromAttribute(item, "slot_id");
+        if (explicitSlotId > 0)
+        {
+            return explicitSlotId;
+        }
+
+        var reservationIdSk = GetString(item, "reservation_id_sk");
+        if (string.IsNullOrWhiteSpace(reservationIdSk))
+        {
+            return 0;
+        }
+
+        var parts = reservationIdSk.Split('#');
+        if (parts.Length < 3)
+        {
+            return 0;
+        }
+
+        return int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var slotId) ? slotId : 0;
+    }
+
+
     private sealed class ReservationHistoryItem
     {
         public string ReservationId { get; init; } = string.Empty;
@@ -186,6 +211,7 @@ public class Function
         public string ReservationStart { get; init; } = string.Empty;
         public string ReservationEnd { get; init; } = string.Empty;
         public int TableId { get; init; }
+        public int SlotId { get; init; }
         public string WaiterId { get; init; } = string.Empty;
         public string LocationId { get; init; } = string.Empty;
         public string Status { get; init; } = string.Empty;
