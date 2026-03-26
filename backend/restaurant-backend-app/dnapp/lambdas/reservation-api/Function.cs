@@ -52,13 +52,19 @@ public class Function
                 return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only POST is allowed.");
             }
 
-            var customerId = ResolveCustomerId(request) ?? ResolveCustomerIdFromBody(request.Body) ?? AnonymousCustomerId;
+            var customerId = ResolveCustomerId(request) ??
+                             ResolveCustomerIdFromBody(request.Body) ?? AnonymousCustomerId;
+
+            context.Logger.LogLine($"CustomerId: {customerId}");
 
             var pathLocationId = ResolveLocationIdFromPath(request);
 
+            context.Logger.LogLine($"LocationId: {pathLocationId}");
+
             if (string.IsNullOrWhiteSpace(request.Body))
             {
-                return ResponseCreator.CreateResponse(400, "Bad Request", "tableId, guests and reservationStart are required.");
+                return ResponseCreator.CreateResponse(400, "Bad Request",
+                    "tableId, guests and reservationStart are required.");
             }
 
             var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body,
@@ -66,12 +72,14 @@ public class Function
 
             if (payload == null || payload.TableId <= 0 || payload.Guests <= 0)
             {
-                return ResponseCreator.CreateResponse(400, "Bad Request", "tableId, guests and reservationStart are required.");
+                return ResponseCreator.CreateResponse(400, "Bad Request",
+                    "tableId, guests and reservationStart are required.");
             }
 
             if (!TryParseReservationStart(payload.ReservationStart, out var reservationStart))
             {
-                return ResponseCreator.CreateResponse(400, "Bad Request", "reservationStart must be either yyyy-MM-dd#HH:mm or a valid ISO-8601 date-time.");
+                return ResponseCreator.CreateResponse(400, "Bad Request",
+                    "reservationStart must be either yyyy-MM-dd#HH:mm or a valid ISO-8601 date-time.");
             }
 
             if (reservationStart < DateTime.UtcNow)
@@ -79,13 +87,14 @@ public class Function
                 return ResponseCreator.CreateResponse(400, "Bad Request", "Reservation time cannot be in the past.");
             }
 
-            var table = await GetTableAsync(payload.TableId);
+            var table = await GetTableAsync(payload.TableId, pathLocationId);
             if (table == null)
             {
                 return ResponseCreator.CreateResponse(404, "Not Found", "Table not found.");
             }
 
-            if (pathLocationId.HasValue && table.LocationId != pathLocationId.Value.ToString(CultureInfo.InvariantCulture))
+            if (pathLocationId.HasValue &&
+                table.LocationId != pathLocationId.Value.ToString(CultureInfo.InvariantCulture))
             {
                 return ResponseCreator.CreateResponse(400, "Bad Request",
                     "Table does not belong to the location from path. Use the table from the same location.");
@@ -93,7 +102,8 @@ public class Function
 
             if (table.Capacity < payload.Guests)
             {
-                return ResponseCreator.CreateResponse(400, "Bad Request", "Selected table capacity is lower than guests count.");
+                return ResponseCreator.CreateResponse(400, "Bad Request",
+                    "Selected table capacity is lower than guests count.");
             }
 
             if (string.IsNullOrWhiteSpace(table.WaiterId))
@@ -121,8 +131,13 @@ public class Function
                         {
                             ["lock_id"] = new AttributeValue { S = lockKey },
                             ["reservation_id"] = new AttributeValue { S = reservationId },
-                            ["table_id"] = new AttributeValue { S = payload.TableId.ToString(CultureInfo.InvariantCulture) },
-                            ["expires_at"] = new AttributeValue { N = new DateTimeOffset(reservationEnd.AddMinutes(CleaningGapMinutes)).ToUnixTimeSeconds().ToString() }
+                            ["table_id"] = new AttributeValue
+                            { S = payload.TableId.ToString(CultureInfo.InvariantCulture) },
+                            ["expires_at"] = new AttributeValue
+                            {
+                                N = new DateTimeOffset(reservationEnd.AddMinutes(CleaningGapMinutes))
+                                    .ToUnixTimeSeconds().ToString()
+                            }
                         },
                         ConditionExpression = "attribute_not_exists(lock_id)"
                     }
@@ -139,17 +154,21 @@ public class Function
                         ["location_id"] = new AttributeValue { N = table.LocationId },
                         ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk },
                         ["date_time_start"] = new AttributeValue { S = dateTimeStart },
-                        ["table_id"] = new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
+                        ["table_id"] =
+                            new AttributeValue { N = payload.TableId.ToString(CultureInfo.InvariantCulture) },
                         ["reservation_id"] = new AttributeValue { S = reservationId },
-                        ["reservation_start"] = new AttributeValue { S = reservationStart.ToString("O", CultureInfo.InvariantCulture) },
-                        ["reservation_end"] = new AttributeValue { S = reservationEnd.ToString("O", CultureInfo.InvariantCulture) },
+                        ["reservation_start"] = new AttributeValue
+                        { S = reservationStart.ToString("O", CultureInfo.InvariantCulture) },
+                        ["reservation_end"] = new AttributeValue
+                        { S = reservationEnd.ToString("O", CultureInfo.InvariantCulture) },
                         ["reservation_date"] = new AttributeValue { S = reservationDate },
                         ["waiter_id"] = new AttributeValue { S = table.WaiterId },
                         ["customer_id"] = new AttributeValue { S = customerId },
                         ["status"] = new AttributeValue { S = "Reserved" },
                         ["guests"] = new AttributeValue { N = payload.Guests.ToString(CultureInfo.InvariantCulture) }
                     },
-                    ConditionExpression = "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
+                    ConditionExpression =
+                        "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
                 }
             });
 
@@ -176,7 +195,12 @@ public class Function
         catch (TransactionCanceledException ex)
         {
             context.Logger.LogWarning($"Booking transaction cancelled: {ex.Message}");
-            return ResponseCreator.CreateResponse(409, "Conflict", "The selected table is already booked for this timeslot.");
+            return ResponseCreator.CreateResponse(409, "Conflict",
+                "The selected table is already booked for this timeslot.");
+        }
+        catch (JsonException ex)
+        {
+            return ResponseCreator.CreateResponse(400, "Invalid request", $"Invalid payload: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -256,34 +280,36 @@ public class Function
         return int.TryParse(rawLocationId, out var locationId) ? locationId : null;
     }
 
-    private async Task<TableMetadata?> GetTableAsync(int tableId)
+    private async Task<TableMetadata?> GetTableAsync(int tableId, int? locId)
     {
-        Dictionary<string, AttributeValue>? item = null;
-
-        try
+        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
         {
-            var getItemResponse = await _dynamoDb.GetItemAsync(new GetItemRequest
+            TableName = _tablesTable,
+            Key = new Dictionary<string, AttributeValue>
             {
+                ["location_id"] = new AttributeValue { N = locId.ToString() },
                 ["table_id"] = new AttributeValue { N = tableId.ToString(CultureInfo.InvariantCulture) }
             },
             ConsistentRead = true
         });
 
-        if (item == null || item.Count == 0) return null;
+        if (response.Item == null || response.Item.Count == 0) return null;
 
+        var item = response.Item;
         var waiterId = item.ContainsKey("waiter_id") ? item["waiter_id"].S : string.Empty;
         var locationId = GetNumericOrString(item, "location_id", "0");
         var capacityValue = GetNumericOrString(item, "capacity", "0");
+        var address = item.ContainsKey("address") ? item["address"].S : string.Empty;
         _ = int.TryParse(capacityValue, out var capacity);
 
         return new TableMetadata
         {
             WaiterId = waiterId,
             LocationId = locationId,
-            Capacity = capacity
+            Capacity = capacity,
+            Address = address
         };
     }
-
 
     private static string GetNumericOrString(IReadOnlyDictionary<string, AttributeValue> item, string key, string defaultValue)
     {
@@ -297,7 +323,6 @@ public class Function
 
         return defaultValue;
     }
-
 
     private static bool TryParseReservationStart(string raw, out DateTime reservationStart)
     {
@@ -331,6 +356,7 @@ public class Function
     private sealed class TableMetadata
     {
         public string WaiterId { get; init; } = string.Empty;
+        public string Address { get; init; } = string.Empty;
         public string LocationId { get; init; } = "0";
         public int Capacity { get; init; }
     }
