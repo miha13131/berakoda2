@@ -1,7 +1,7 @@
 {
   "version": "1.2",
   "name": "sign-in-api-handler",
-  "func_name": "SignInApiHandler::SignInApiHandler.Function::SignInApi",
+  "func_name": "SignInApiHandler::SignInApiHandler.Function::FunctionHandler",
   "resource_type": "lambda",
   "iam_role_name": "sign-in-api-handler-role",
   "runtime": "dotnet8",

@@ -10,7 +10,11 @@
   "lambda_path": "lambdas\\sign-up-api-handler",
   "dependencies": [],
   "event_sources": [],
-  "env_variables": {},
+  "env_variables": {
+    "WAITERS_TABLE_NAME": "waiters-list",
+    "WAITER_ROLE_NAME": "Waiter",
+    "CUSTOMER_ROLE_NAME": "Customer"
+  },
   "deploy_stage": "api",
   "architectures": [
     "x86_64"

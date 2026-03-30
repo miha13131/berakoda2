@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Amazon.CognitoIdentityProvider;
 using Amazon.CognitoIdentityProvider.Model;
@@ -15,8 +16,8 @@ namespace SendConfirmation;
 
 public class Function
 {
-    private readonly AmazonCognitoIdentityProviderClient _cognitoClient;
-    private readonly AmazonSimpleSystemsManagementClient _ssmClient;
+    private readonly IAmazonCognitoIdentityProvider _cognitoClient;
+    private readonly IAmazonSimpleSystemsManagement _ssmClient;
     
     private ICognitoService _cognitoService;
     
@@ -27,6 +28,16 @@ public class Function
     {
         _cognitoClient = new AmazonCognitoIdentityProviderClient();
         _ssmClient = new AmazonSimpleSystemsManagementClient();
+    }
+
+    public Function(IAmazonCognitoIdentityProvider cognitoClient, IAmazonSimpleSystemsManagement ssmClient, string clientId = null, string clientSecret = null)
+    {
+        _cognitoClient = cognitoClient;
+        _ssmClient = ssmClient;
+        _clientId = clientId;
+        _clientSecret = clientSecret;
+        if (clientId != null && clientSecret != null)
+            _cognitoService = new CognitoService(_cognitoClient, _clientSecret, _clientId);
     }
     
     private async Task LoadParametersAsync()
@@ -52,13 +63,26 @@ public class Function
     public async Task<APIGatewayProxyResponse> FunctionHandler(APIGatewayProxyRequest request, ILambdaContext context)
     {
         await LoadParametersAsync();
+
+        if (string.IsNullOrWhiteSpace(request.Body))
+            return ResponseCreator.CreateResponse(400, "Validation Error", "Request body is empty.");
     
         try
         {
-            var dto = JsonSerializer.Deserialize<ConfirmEmailDto>(request.Body, new JsonSerializerOptions 
-            { 
-                PropertyNameCaseInsensitive = true 
-            });
+            ConfirmEmailDto? dto;
+
+            try
+            {
+                dto = JsonSerializer.Deserialize<ConfirmEmailDto>(request.Body, new JsonSerializerOptions 
+                { 
+                    PropertyNameCaseInsensitive = true,
+                    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+                });
+            }
+            catch (JsonException ex)
+            {
+                return ResponseCreator.CreateResponse(400, "Validation Error", $"Invalid payload: {ex.Message}");
+            }
 
             if (dto == null || string.IsNullOrEmpty(dto.Email) || string.IsNullOrEmpty(dto.VerificationCode))
             {

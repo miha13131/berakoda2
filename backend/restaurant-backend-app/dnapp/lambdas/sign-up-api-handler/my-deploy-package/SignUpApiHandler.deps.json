@@ -1,0 +1,129 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "SignUpApiHandler/1.0.0": {
+        "dependencies": {
+          "AWSSDK.CognitoIdentityProvider": "4.0.5.2",
+          "AWSSDK.SimpleSystemsManagement": "4.0.7.1",
+          "Amazon.Lambda.APIGatewayEvents": "2.4.0",
+          "Amazon.Lambda.Core": "2.2.0",
+          "Amazon.Lambda.Serialization.SystemTextJson": "2.2.0"
+        },
+        "runtime": {
+          "SignUpApiHandler.dll": {}
+        }
+      },
+      "Amazon.Lambda.APIGatewayEvents/2.4.0": {
+        "runtime": {
+          "lib/netcoreapp3.1/Amazon.Lambda.APIGatewayEvents.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.2.0.0"
+          }
+        }
+      },
+      "Amazon.Lambda.Core/2.2.0": {
+        "runtime": {
+          "lib/net8.0/Amazon.Lambda.Core.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "Amazon.Lambda.Serialization.SystemTextJson/2.2.0": {
+        "dependencies": {
+          "Amazon.Lambda.Core": "2.2.0"
+        },
+        "runtime": {
+          "lib/net6.0/Amazon.Lambda.Serialization.SystemTextJson.dll": {
+            "assemblyVersion": "0.0.0.0",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "AWSSDK.CognitoIdentityProvider/4.0.5.2": {
+        "dependencies": {
+          "AWSSDK.Core": "4.0.3.15"
+        },
+        "runtime": {
+          "lib/net8.0/AWSSDK.CognitoIdentityProvider.dll": {
+            "assemblyVersion": "4.0.0.0",
+            "fileVersion": "4.0.5.2"
+          }
+        }
+      },
+      "AWSSDK.Core/4.0.3.15": {
+        "runtime": {
+          "lib/net8.0/AWSSDK.Core.dll": {
+            "assemblyVersion": "4.0.0.0",
+            "fileVersion": "4.0.3.15"
+          }
+        }
+      },
+      "AWSSDK.SimpleSystemsManagement/4.0.7.1": {
+        "dependencies": {
+          "AWSSDK.Core": "4.0.3.15"
+        },
+        "runtime": {
+          "lib/net8.0/AWSSDK.SimpleSystemsManagement.dll": {
+            "assemblyVersion": "4.0.0.0",
+            "fileVersion": "4.0.7.1"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "SignUpApiHandler/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Amazon.Lambda.APIGatewayEvents/2.4.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-QDDGZq2RwY4BBn2ai/dLLCdeHZBp1cSwqrjAe/m371z6Sv6pza8ZsVnZYxE+Dqmhh4UF0uZ6t520tVqOYcEzzQ==",
+      "path": "amazon.lambda.apigatewayevents/2.4.0",
+      "hashPath": "amazon.lambda.apigatewayevents.2.4.0.nupkg.sha512"
+    },
+    "Amazon.Lambda.Core/2.2.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-DHqKeD1CYocP0t1dJC/NaXfu+5k6AoqnQ1Hlu/J2mXpLpCyeJfY+tIqT5fpruDarUlU0NtdIH8zSkCjeinyb1A==",
+      "path": "amazon.lambda.core/2.2.0",
+      "hashPath": "amazon.lambda.core.2.2.0.nupkg.sha512"
+    },
+    "Amazon.Lambda.Serialization.SystemTextJson/2.2.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-ENIKiMBVUegIbwHwg4P0XjJKXazTlCS05bqRKrn9BTUWDZQjPp5RaFs1h2+22H4SiqWosNxKrNCeiXyHJnwOHw==",
+      "path": "amazon.lambda.serialization.systemtextjson/2.2.0",
+      "hashPath": "amazon.lambda.serialization.systemtextjson.2.2.0.nupkg.sha512"
+    },
+    "AWSSDK.CognitoIdentityProvider/4.0.5.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-QeZD9OjyKAgKb4j6OOHf7q3fq0Aq+syXcQrCfS7ThHPh1lswa9jlrf9scJqYKRulH/XT0uWJ5gXBfdMqjeHTQQ==",
+      "path": "awssdk.cognitoidentityprovider/4.0.5.2",
+      "hashPath": "awssdk.cognitoidentityprovider.4.0.5.2.nupkg.sha512"
+    },
+    "AWSSDK.Core/4.0.3.15": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-1haLKyBjhwV34uafRco2du36ACf2k0pjKqhYj//y4TROSk3OW/faov0/+zGZidUyUuNP06hvUb8U/LgNPKsSeg==",
+      "path": "awssdk.core/4.0.3.15",
+      "hashPath": "awssdk.core.4.0.3.15.nupkg.sha512"
+    },
+    "AWSSDK.SimpleSystemsManagement/4.0.7.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-GpkSNdiXGdbJI6Qp7rNE+EXxFvZYZRL2uQrtRlik4AyuDdl6PQyOtzYLUPXYrWRcyfXGDes3lr7lnjH5CJyglg==",
+      "path": "awssdk.simplesystemsmanagement/4.0.7.1",
+      "hashPath": "awssdk.simplesystemsmanagement.4.0.7.1.nupkg.sha512"
+    }
+  }
+}

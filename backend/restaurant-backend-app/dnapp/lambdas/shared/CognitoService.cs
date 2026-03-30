@@ -16,25 +16,26 @@ public class CognitoService : ICognitoService
         _clientSecret = clientSecret;
     }
 
-    public async Task SignUpAsync(string firstName, string lastName, string email, string password)
+    public async Task SignUpAsync(string firstName, string lastName, string email, string password, string role)
     {
         var secretHash = SecretHashGenerator.GenerateSecretHash(
             email,
             _clientId,
             _clientSecret);
-        
+
         var request = new SignUpRequest
         {
             ClientId = _clientId,
             SecretHash = secretHash,
             Username = email,
             Password = password,
-            
+
             UserAttributes = new List<AttributeType>
             {
                 new AttributeType { Name = "email", Value = email },
                 new AttributeType { Name = "given_name", Value = firstName },
-                new AttributeType { Name = "family_name", Value = lastName }
+                new AttributeType { Name = "family_name", Value = lastName },
+                new AttributeType { Name = "custom:role", Value = role }
             }
         };
 
