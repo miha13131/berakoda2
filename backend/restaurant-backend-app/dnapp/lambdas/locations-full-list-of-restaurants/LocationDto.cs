@@ -1,4 +1,4 @@
-namespace SimpleLambdaFunction;
+namespace LocationsFull;
 
 public class LocationDto
 {

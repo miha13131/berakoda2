@@ -1,7 +1,10 @@
 {
-  "dishes-list-of-popular-dishes-role": {
+  "forgot-password-api-handler-role": {
     "predefined_policies": [],
     "principal_service": "lambda",
+    "allowed_accounts": [
+      "${account_id}"
+    ],
     "custom_policies": [
       "lambda-basic-execution"
     ],

@@ -8,7 +8,7 @@ using shared;
 
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
 
-namespace SimpleLambdaFunction;
+namespace LocationsFull;
 
 public class Function
 {
@@ -17,6 +17,11 @@ public class Function
     public Function()
     {
         _client = new AmazonDynamoDBClient();
+    }
+
+    public Function(IAmazonDynamoDB client)
+    {
+        _client = client;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -39,11 +44,11 @@ public class Function
         {
             id = int.TryParse(item["location_id"].N, out var lId) ? lId : 0,
             address = item["address"].S,
-            averageOccupancy = int.TryParse(item["average_occupancy"].N, out var a) ? a : 0,
-            totalCapacity = int.TryParse(item["total_capacity"].N, out var t) ? t : 0, 
-            image =  item["image_url"].S,
+            averageOccupancy = int.TryParse(item["average_occupancy"].N, out var lAverageOccupancy) ? lAverageOccupancy : 0,
+            totalCapacity = int.TryParse(item["total_capacity"].N, out var lTotalCapacity) ? lTotalCapacity : 0, 
+            image = item["image_url"].S,
             description = item["description"].S,
-            rating = double.TryParse(item["rating"].N, out var r) ? r : 0,
+            rating = double.TryParse(item["rating"].N, out var lRating) ? lRating : 0,
         }).ToList();
         
         return ResponseCreator.CreateResponse(200, "Successful return of the list of locations!", new { locationsList = locations });

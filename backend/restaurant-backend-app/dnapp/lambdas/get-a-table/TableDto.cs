@@ -1,4 +1,4 @@
-namespace SimpleLambdaFunction;
+namespace GetATable;
 
 public class TableDto
 {

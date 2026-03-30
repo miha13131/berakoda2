@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "name": "locations-specific-restaurant-dishes",
-  "func_name": "SimpleLambdaFunction::SimpleLambdaFunction.Function::FunctionHandler",
+  "func_name": "LocationsSpecific::LocationsSpecific.Function::FunctionHandler",
   "resource_type": "lambda",
   "iam_role_name": "locations-specific-restaurant-dishes-role",
   "runtime": "dotnet8",

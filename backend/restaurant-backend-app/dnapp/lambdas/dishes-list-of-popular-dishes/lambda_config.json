@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "name": "dishes-list-of-popular-dishes",
-  "func_name": "SimpleLambdaFunction::SimpleLambdaFunction.Function::FunctionHandler",
+  "func_name": "PopularDishes::PopularDishes.Function::FunctionHandler",
   "resource_type": "lambda",
   "iam_role_name": "dishes-list-of-popular-dishes-role",
   "runtime": "dotnet8",

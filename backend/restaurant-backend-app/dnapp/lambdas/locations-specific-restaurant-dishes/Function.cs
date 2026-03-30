@@ -9,7 +9,7 @@ using shared;
 
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
 
-namespace SimpleLambdaFunction;
+namespace LocationsSpecific;
 
 public class Function
 {
@@ -18,12 +18,15 @@ public class Function
     public Function()
     {
         _client = new AmazonDynamoDBClient();
-    } 
+    }
+
+    public Function(IAmazonDynamoDB client)
+    {
+        _client = client;
+    }
     
     public async Task<APIGatewayProxyResponse> FunctionHandler(APIGatewayProxyRequest request, ILambdaContext context)
     {
-        var response = await _client.ScanAsync(new ScanRequest { TableName = "OrderItems" });
-        
         string locationId = request.PathParameters != null &&
                             request.PathParameters.ContainsKey("id")
             ? request.PathParameters["id"]
@@ -32,20 +35,49 @@ public class Function
         if (locationId == null)
             return ResponseCreator.CreateResponse(400, "Location ID is missing", null);
         
+        var location = await _client.GetItemAsync(new GetItemRequest
+        {
+            TableName = "Locations",
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "location_id", new AttributeValue { N = locationId } }
+            }
+        });
+
+        if (location.Item == null || location.Item.Count == 0)
+        {
+            return ResponseCreator.CreateResponse(404, "Location not found", null);
+        }
+        
+        var queryRequest = new QueryRequest
+        {
+            TableName = "OrderItems",
+            IndexName = "OrderItemsLocation",
+            KeyConditionExpression = "location_id = :locationId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":locationId", new AttributeValue { N = locationId } },
+            }
+        };
+        
+        var response = await _client.QueryAsync(queryRequest);
+        
         var mapped = response.Items
             .Select(item => new
             {
                 DishId = item["dish_id"].N,
-                Quantity = int.Parse(item["quantity"].N),
+                Quantity = int.TryParse(item["quantity"].N, out var qty) ? qty : 0,
                 LocationId = item["location_id"].N
             })
             .ToList();
         
+        /* // KeyConditionExpression = "location_id = :locationId", so filtering is not needed
         var filtered = mapped
             .Where(x => x.LocationId == locationId)
             .ToList();
+        */ 
         
-        var aggregated = filtered
+        var aggregated = mapped
             .GroupBy(x => x.DishId)
             .Select(group => new
             {
@@ -56,7 +88,6 @@ public class Function
         
         var top = aggregated
             .OrderByDescending(x => x.TotalOrdered)
-            .Take(6)
             .ToList();
         
         if (!top.Any())
@@ -70,22 +101,33 @@ public class Function
         }).ToList();
 
         var batchRequest = new BatchGetItemRequest
-        { RequestItems = new Dictionary<string, KeysAndAttributes> {{ "Dishes", new KeysAndAttributes { Keys = keys }
-                }
-            }
+        { 
+            RequestItems = new Dictionary<string, KeysAndAttributes> {{ "Dishes", new KeysAndAttributes { Keys = keys } } }
         };
 
-        var dishesResponse = await _client.BatchGetItemAsync(batchRequest);
+        var allDishes = new List<Dictionary<string, AttributeValue>>();
+        var unprocessed = batchRequest.RequestItems;
+        do {
+            var batchResp = await _client.BatchGetItemAsync(new BatchGetItemRequest { RequestItems = unprocessed });
+            allDishes.AddRange(batchResp.Responses["Dishes"]);
+            unprocessed = batchResp.UnprocessedKeys?.Count > 0 ? batchResp.UnprocessedKeys : null;
+        } while (unprocessed != null);
 
-        var dishes = dishesResponse.Responses["Dishes"];
+        var dishes = allDishes;
 
         var result = dishes.Select(d => new DishDto
         {
-            id = d["dish_id"].N,
+            id = int.TryParse(d["dish_id"].N, out var dId) ? dId : 0,
             name = d["name"].S,
-            price = d["price"].N,
-            weight = d["weight"].N,
-            image = d["image_url"].S
+            price = int.TryParse(d["price"].N, out var dPrice) ? dPrice : 0,
+            weight = int.TryParse(d["weight"].N, out var dWeight) ? dWeight : 0,
+            image = d["image_url"].S,
+            calories = int.TryParse(d["calories"].N, out var dCalories) ? dCalories : 0,
+            carbohydrates = d["carbohydrates"].S,
+            description = d["description"].S,
+            fats = d["fats"].S,
+            protein = d["protein"].S,
+            vitaminsAndMinerals = d["vitamins_and_minerals"].S,
         }).ToList();
         
         return ResponseCreator.CreateResponse(200, "Successful return of the specific restaurant dishes!", new { popularDishes = result });

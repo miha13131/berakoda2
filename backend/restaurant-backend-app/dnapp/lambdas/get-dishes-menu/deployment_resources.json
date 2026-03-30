@@ -1,5 +1,5 @@
 {
-  "dishes-list-of-popular-dishes-role": {
+  "get-dishes-menu-role": {
     "predefined_policies": [],
     "principal_service": "lambda",
     "custom_policies": [

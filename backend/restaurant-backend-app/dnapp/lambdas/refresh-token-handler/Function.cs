@@ -18,8 +18,8 @@ namespace RefreshTokenHandler
 {
     public class Function
     {
-        private readonly AmazonCognitoIdentityProviderClient _cognitoClient;
-        private readonly AmazonSimpleSystemsManagementClient _ssmClient;
+        private readonly IAmazonCognitoIdentityProvider _cognitoClient;
+        private readonly IAmazonSimpleSystemsManagement _ssmClient;
         private string _clientId;
         private string _clientSecret;
 
@@ -29,9 +29,17 @@ namespace RefreshTokenHandler
             _ssmClient = new AmazonSimpleSystemsManagementClient();
         }
 
+        public Function(IAmazonCognitoIdentityProvider cognitoClient, IAmazonSimpleSystemsManagement ssmClient, string clientId = null, string clientSecret = null)
+        {
+            _cognitoClient = cognitoClient;
+            _ssmClient = ssmClient;
+            _clientId = clientId;
+            _clientSecret = clientSecret;
+        }
+
         private async Task LoadParametersAsync()
         {
-            if (_clientId != null) return;
+            if (_clientId != null && _clientSecret != null) return;
             
             _clientId = (await _ssmClient.GetParameterAsync(new GetParameterRequest { Name = "/dnapp/cognito/client_id" })).Parameter.Value;
             _clientSecret = (await _ssmClient.GetParameterAsync(new GetParameterRequest { Name = "/dnapp/cognito/client_secret", WithDecryption = true })).Parameter.Value;
@@ -55,9 +63,27 @@ namespace RefreshTokenHandler
                 if (string.IsNullOrWhiteSpace(body?.accessToken) || string.IsNullOrWhiteSpace(body?.refreshToken))
                     return ResponseCreator.CreateResponse(400, "Access token and refresh token are required.", null);
 
-                var handler = new JwtSecurityTokenHandler();
-                var jwtToken = handler.ReadJwtToken(body.accessToken);
-                var systemUsername = jwtToken.Claims.First(claim => claim.Type == "username").Value;
+                string systemUsername;
+                try
+                {
+                    var handler = new JwtSecurityTokenHandler();
+                    var jwtToken = handler.ReadJwtToken(body.accessToken);
+                    systemUsername = jwtToken.Claims.FirstOrDefault(claim => claim.Type == "username")?.Value;
+                    
+                    if (string.IsNullOrWhiteSpace(systemUsername))
+                    {
+                        systemUsername = jwtToken.Claims.FirstOrDefault(claim => claim.Type == "sub")?.Value;
+                    }
+                    
+                    if (string.IsNullOrWhiteSpace(systemUsername))
+                    {
+                        return ResponseCreator.CreateResponse(400, "Cannot extract username from access token.", null);
+                    }
+                }
+                catch (Exception)
+                {
+                    return ResponseCreator.CreateResponse(400, "Invalid access token format.", null);
+                }
 
                 await LoadParametersAsync();
 
@@ -84,6 +110,14 @@ namespace RefreshTokenHandler
             catch (NotAuthorizedException)
             {
                 return ResponseCreator.CreateResponse(401, "Refresh token is invalid or expired. Please log in again.", null);
+            }
+            catch (UserNotFoundException)
+            {
+                return ResponseCreator.CreateResponse(401, "User no longer exists. Please create a new account.", null);
+            }
+            catch (TooManyRequestsException)
+            {
+                return ResponseCreator.CreateResponse(429, "Too many requests. Please wait and try again.", null);
             }
             catch (Exception ex)
             {

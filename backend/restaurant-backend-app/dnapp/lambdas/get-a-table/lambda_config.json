@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "name": "get-a-table",
-  "func_name": "SimpleLambdaFunction::SimpleLambdaFunction.Function::FunctionHandler",
+  "func_name": "GetATable::GetATable.Function::FunctionHandler",
   "resource_type": "lambda",
   "iam_role_name": "get-a-table-role",
   "runtime": "dotnet8",
