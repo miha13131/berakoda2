@@ -247,7 +247,7 @@ public class Function
             return ResponseCreator.CreateResponse(400, "Bad Request", "Requested table capacity is lower than guests count.");
         }
 
-        if (!string.Equals(newTable.WaiterId, reservation.WaiterId, StringComparison.Ordinal))
+        if (!postponeOnly && !string.Equals(newTable.WaiterId, reservation.WaiterId, StringComparison.OrdinalIgnoreCase))
         {
             return ResponseCreator.CreateResponse(403, "Forbidden", "Waiter can manage tables assigned to this waiter only.");
         }
