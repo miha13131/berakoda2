@@ -31,7 +31,8 @@
     "RESERVATIONS_TABLE": "Reservations",
     "TABLES_TABLE": "Tables",
     "BOOKING_LOCKS_TABLE": "BookingLocks",
-    "WAITERS_TABLE": "waiters-list"
+    "WAITERS_TABLE": "waiters-list",
+    "RESERVATION_ID_PATCH_INDEX": "reservation_id_patch"
   },
   "publish_version": true,
   "alias": "${lambdas_alias_name}",

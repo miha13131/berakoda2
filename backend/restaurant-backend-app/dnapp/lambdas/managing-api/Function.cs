@@ -22,6 +22,7 @@ public class Function
     private readonly string _tablesTable;
     private readonly string _bookingLocksTable;
     private readonly string _waitersTable;
+    private readonly string _reservationIdPatchIndex;
 
     private const int ReservationDurationMinutes = 90;
     private const int CleaningGapMinutes = 15;
@@ -34,15 +35,17 @@ public class Function
         _tablesTable = Environment.GetEnvironmentVariable("TABLES_TABLE") ?? "Tables";
         _bookingLocksTable = Environment.GetEnvironmentVariable("BOOKING_LOCKS_TABLE") ?? "BookingLocks";
         _waitersTable = Environment.GetEnvironmentVariable("WAITERS_TABLE") ?? "waiters-list";
+        _reservationIdPatchIndex = Environment.GetEnvironmentVariable("RESERVATION_ID_PATCH_INDEX") ?? "reservation_id_patch";
     }
 
-    public Function(IAmazonDynamoDB dynamoDb, string reservationsTable = "Reservations", string tablesTable = "Tables", string bookingLocksTable = "BookingLocks", string waitersTable = "waiters-list")
+    public Function(IAmazonDynamoDB dynamoDb, string reservationsTable = "Reservations", string tablesTable = "Tables", string bookingLocksTable = "BookingLocks", string waitersTable = "waiters-list", string reservationIdPatchIndex = "reservation_id_patch")
     {
         _dynamoDb = dynamoDb;
         _reservationsTable = reservationsTable;
         _tablesTable = tablesTable;
         _bookingLocksTable = bookingLocksTable;
         _waitersTable = waitersTable;
+        _reservationIdPatchIndex = reservationIdPatchIndex;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(APIGatewayProxyRequest request, ILambdaContext context)
@@ -348,7 +351,32 @@ public class Function
 
     private async Task<ReservationRecord?> GetReservationByIdAsync(string reservationId)
     {
-        var response = await _dynamoDb.ScanAsync(new ScanRequest
+        try
+        {
+            var queryResponse = await _dynamoDb.QueryAsync(new QueryRequest
+            {
+                TableName = _reservationsTable,
+                IndexName = _reservationIdPatchIndex,
+                KeyConditionExpression = "reservation_id = :reservationId",
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":reservationId"] = new AttributeValue { S = reservationId }
+                },
+                Limit = 1
+            });
+
+            var queryItem = queryResponse.Items.FirstOrDefault();
+            if (queryItem != null)
+            {
+                return ParseReservation(queryItem);
+            }
+        }
+        catch (AmazonDynamoDBException)
+        {
+            // fallback below
+        }
+
+        var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
         {
             TableName = _reservationsTable,
             FilterExpression = "reservation_id = :reservationId",
@@ -359,8 +387,8 @@ public class Function
             Limit = 1
         });
 
-        var item = response.Items.FirstOrDefault();
-        return item == null ? null : ParseReservation(item);
+        var scanItem = scanResponse.Items.FirstOrDefault();
+        return scanItem == null ? null : ParseReservation(scanItem);
     }
 
     private async Task<TableRecord?> GetTableAsync(int locationId, int tableId)
