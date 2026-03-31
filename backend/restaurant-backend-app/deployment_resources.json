@@ -609,14 +609,7 @@
     "hash_key_type": "S",
     "billing_mode": "PAY_PER_REQUEST",
     "read_capacity": 1,
-    "write_capacity": 1,
-    "global_indexes": [
-      {
-        "name": "UserNameIndex",
-        "index_key_name": "lower_username",
-        "index_key_type": "S"
-      }
-    ]
+    "write_capacity": 1
   },
   "waiters-list": {
     "resource_type": "dynamodb_table",

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Threading.Tasks;
@@ -88,13 +87,13 @@ public class Function
             var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
             {
                 TableName = _usersTable,
-                FilterExpression = "contains(lower_username, :q) OR contains(username, :q) OR contains(user_id, :q)",
+                FilterExpression = "contains(user_id, :q)",
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
-                    [":q"] = new AttributeValue { S = normalizedQuery.ToLowerInvariant() }
+                    [":q"] = new AttributeValue { S = normalizedQuery }
                 },
-                ProjectionExpression = "user_id, username",
-                Limit = 50
+                ProjectionExpression = "user_id",
+                Limit = 20
             });
 
             var customers = scanResponse.Items
@@ -169,7 +168,7 @@ public class Function
     private static CustomerDto MapCustomer(IReadOnlyDictionary<string, AttributeValue> item)
     {
         var id = GetString(item, "user_id");
-        var name = GetString(item, "username");
+        var name = GetString(item, "user_id");
 
         if (string.IsNullOrWhiteSpace(name))
         {
