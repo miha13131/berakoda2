@@ -21,6 +21,7 @@ public class Function
     private readonly string _reservationsTable;
     private readonly string _tablesTable;
     private readonly string _bookingLocksTable;
+    private readonly string _waitersTable;
 
     private const int ReservationDurationMinutes = 90;
     private const int CleaningGapMinutes = 15;
@@ -32,14 +33,16 @@ public class Function
         _reservationsTable = Environment.GetEnvironmentVariable("RESERVATIONS_TABLE") ?? "Reservations";
         _tablesTable = Environment.GetEnvironmentVariable("TABLES_TABLE") ?? "Tables";
         _bookingLocksTable = Environment.GetEnvironmentVariable("BOOKING_LOCKS_TABLE") ?? "BookingLocks";
+        _waitersTable = Environment.GetEnvironmentVariable("WAITERS_TABLE") ?? "waiters-list";
     }
 
-    public Function(IAmazonDynamoDB dynamoDb, string reservationsTable = "Reservations", string tablesTable = "Tables", string bookingLocksTable = "BookingLocks")
+    public Function(IAmazonDynamoDB dynamoDb, string reservationsTable = "Reservations", string tablesTable = "Tables", string bookingLocksTable = "BookingLocks", string waitersTable = "waiters-list")
     {
         _dynamoDb = dynamoDb;
         _reservationsTable = reservationsTable;
         _tablesTable = tablesTable;
         _bookingLocksTable = bookingLocksTable;
+        _waitersTable = waitersTable;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(APIGatewayProxyRequest request, ILambdaContext context)
@@ -130,10 +133,16 @@ public class Function
 
     private async Task<APIGatewayProxyResponse> HandlePatchAsync(APIGatewayProxyRequest request)
     {
-        var waiterId = ResolveWaiterId(request);
-        if (string.IsNullOrWhiteSpace(waiterId))
+        var waiterEmail = ResolveWaiterEmail(request);
+        if (string.IsNullOrWhiteSpace(waiterEmail))
         {
             return ResponseCreator.CreateResponse(401, "Unauthorized", "Missing waiter identity.");
+        }
+
+        var isWaiterActor = await IsWaiterEmailAsync(waiterEmail);
+        if (!isWaiterActor)
+        {
+            return ResponseCreator.CreateResponse(403, "Forbidden", "Only waiter account can manage reservations.");
         }
 
         if (string.IsNullOrWhiteSpace(request.Body))
@@ -160,7 +169,7 @@ public class Function
             return ResponseCreator.CreateResponse(404, "Not Found", "Reservation not found.");
         }
 
-        if (!string.Equals(reservation.WaiterId, waiterId, StringComparison.Ordinal))
+        if (!string.Equals(reservation.WaiterId, waiterEmail, StringComparison.OrdinalIgnoreCase))
         {
             return ResponseCreator.CreateResponse(403, "Forbidden", "Waiter can manage only own reservations for assigned location.");
         }
@@ -413,13 +422,15 @@ public class Function
         };
     }
 
-    private static string? ResolveWaiterId(APIGatewayProxyRequest request)
+    private static string? ResolveWaiterEmail(APIGatewayProxyRequest request)
     {
         var claims = request?.RequestContext?.Authorizer?.Claims;
         if (claims != null)
         {
-            if (claims.TryGetValue("sub", out var sub) && !string.IsNullOrWhiteSpace(sub)) return sub;
-            if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email)) return email;
+            if (claims.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email))
+            {
+                return email.Trim().ToLowerInvariant();
+            }
         }
 
         var authHeader = request?.Headers?.FirstOrDefault(h =>
@@ -435,15 +446,34 @@ public class Function
         try
         {
             var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
-            var subClaim = jwt.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
-            if (!string.IsNullOrWhiteSpace(subClaim)) return subClaim;
             var emailClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
-            return string.IsNullOrWhiteSpace(emailClaim) ? null : emailClaim;
+            return string.IsNullOrWhiteSpace(emailClaim) ? null : emailClaim.Trim().ToLowerInvariant();
         }
         catch
         {
             return null;
         }
+    }
+
+    private async Task<bool> IsWaiterEmailAsync(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return false;
+        }
+
+        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
+        {
+            TableName = _waitersTable,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["email"] = new AttributeValue { S = email.Trim().ToLowerInvariant() }
+            },
+            ProjectionExpression = "email",
+            ConsistentRead = true
+        });
+
+        return response.Item != null && response.Item.Count > 0;
     }
 
     private static bool TryParseReservationStart(string? value, out DateTime reservationStart)
