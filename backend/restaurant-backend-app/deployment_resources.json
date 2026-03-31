@@ -13,6 +13,8 @@
             "dynamodb:PutItem",
             "dynamodb:Batch*",
             "dynamodb:DeleteItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:TransactWriteItems",
             "dynamodb:Scan",
             "ssm:PutParameter",
             "ssm:GetParameter",
@@ -94,6 +96,14 @@
       },
       {
         "resource_name": "leave-feedback",
+        "resource_type": "lambda"
+      },
+      {
+        "resource_name": "managing-api",
+        "resource_type": "lambda"
+      },
+      {
+        "resource_name": "customers-search",
         "resource_type": "lambda"
       }
     ],
@@ -243,6 +253,48 @@
           "method_request_parameters": {
             "method.request.path.id": true
           },
+          "integration_request_body_template": {},
+          "responses": [],
+          "enable_proxy": true,
+          "integration_responses": [],
+          "default_error_pattern": true
+        }
+      },
+      "/reservations/manage": {
+        "enable_cors": { "state": true },
+        "GET": {
+          "authorization_type": "NONE",
+          "integration_type": "lambda",
+          "lambda_name": "managing-api",
+          "api_key_required": false,
+          "method_request_parameters": {},
+          "integration_request_body_template": {},
+          "responses": [],
+          "enable_proxy": true,
+          "integration_responses": [],
+          "default_error_pattern": true
+        },
+        "PATCH": {
+          "authorization_type": "NONE",
+          "integration_type": "lambda",
+          "lambda_name": "managing-api",
+          "api_key_required": false,
+          "method_request_parameters": {},
+          "integration_request_body_template": {},
+          "responses": [],
+          "enable_proxy": true,
+          "integration_responses": [],
+          "default_error_pattern": true
+        }
+      },
+      "/customers/search": {
+        "enable_cors": { "state": true },
+        "GET": {
+          "authorization_type": "NONE",
+          "integration_type": "lambda",
+          "lambda_name": "customers-search",
+          "api_key_required": false,
+          "method_request_parameters": {},
           "integration_request_body_template": {},
           "responses": [],
           "enable_proxy": true,
