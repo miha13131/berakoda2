@@ -55,8 +55,13 @@ public class Function
                 return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only POST is allowed.");
             }
 
-            var customerId = ResolveCustomerId(request) ??
-                             ResolveCustomerIdFromBody(request.Body) ?? AnonymousCustomerId;
+            var actorId = ResolveCustomerId(request);
+            var actorEmail = ResolveActorEmail(request);
+            var customerIdFromBody = ResolveCustomerIdFromBody(request.Body);
+            var isWaiterActor = await IsWaiterEmailAsync(actorEmail);
+            var customerId = isWaiterActor
+                ? customerIdFromBody ?? actorId ?? actorEmail ?? AnonymousCustomerId
+                : actorId ?? AnonymousCustomerId;
 
             context.Logger.LogLine($"CustomerId: {customerId}");
 
@@ -114,6 +119,10 @@ public class Function
                 return ResponseCreator.CreateResponse(400, "Bad Request", "Selected table has no assigned waiter.");
             }
 
+            var reservationWaiterId = isWaiterActor && !string.IsNullOrWhiteSpace(actorEmail)
+                ? actorEmail
+                : table.WaiterId;
+
             var reservationId = Guid.NewGuid().ToString("N");
             var reservationEnd = reservationStart.AddMinutes(ReservationDurationMinutes);
             var reservationDate = reservationStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -165,7 +174,7 @@ public class Function
                         ["reservation_end"] = new AttributeValue
                         { S = reservationEnd.ToString("O", CultureInfo.InvariantCulture) },
                         ["reservation_date"] = new AttributeValue { S = reservationDate },
-                        ["waiter_id"] = new AttributeValue { S = table.WaiterId },
+                        ["waiter_id"] = new AttributeValue { S = reservationWaiterId },
                         ["customer_id"] = new AttributeValue { S = customerId },
                         ["status"] = new AttributeValue { S = "Reserved" },
                         ["guests"] = new AttributeValue { N = payload.Guests.ToString(CultureInfo.InvariantCulture) }
@@ -180,7 +189,7 @@ public class Function
                 TransactItems = transactItems
             });
 
-            var waiterProfile = await GetWaiterProfileAsync(table.WaiterId);
+            var waiterProfile = await GetWaiterProfileAsync(reservationWaiterId);
 
             var reservation = new ReservationDto
             {
@@ -189,12 +198,11 @@ public class Function
                 ReservationStart = reservationStart.ToString("O", CultureInfo.InvariantCulture),
                 ReservationEnd = reservationEnd.ToString("O", CultureInfo.InvariantCulture),
                 TableId = payload.TableId,
-                WaiterId = table.WaiterId,
                 Waiter = waiterProfile,
                 CustomerId = customerId,
                 Guests = payload.Guests,
                 Status = "Reserved",
-                CreatedBy = "waiter"
+                CreatedBy = isWaiterActor ? "waiter" : "customer"
             };
 
             return ResponseCreator.CreateResponse(201, "Created", reservation);
@@ -251,6 +259,44 @@ public class Function
         return null;
     }
 
+    private static string? ResolveActorEmail(APIGatewayProxyRequest request)
+    {
+        var claims = request?.RequestContext?.Authorizer?.Claims;
+        if (claims != null &&
+            claims.TryGetValue("email", out var email) &&
+            !string.IsNullOrWhiteSpace(email))
+        {
+            return email.Trim().ToLowerInvariant();
+        }
+
+        var authHeader = request?.Headers?
+            .FirstOrDefault(h => string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase)).Value;
+        if (string.IsNullOrWhiteSpace(authHeader))
+        {
+            return null;
+        }
+
+        var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? authHeader["Bearer ".Length..].Trim()
+            : authHeader.Trim();
+
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        try
+        {
+            var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+            var emailClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
+            return string.IsNullOrWhiteSpace(emailClaim) ? null : emailClaim.Trim().ToLowerInvariant();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static string? ResolveCustomerIdFromBody(string? requestBody)
     {
         if (string.IsNullOrWhiteSpace(requestBody))
@@ -268,6 +314,27 @@ public class Function
         {
             return null;
         }
+    }
+
+    private async Task<bool> IsWaiterEmailAsync(string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return false;
+        }
+
+        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
+        {
+            TableName = _waitersTable,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["email"] = new AttributeValue { S = email.Trim().ToLowerInvariant() }
+            },
+            ProjectionExpression = "email",
+            ConsistentRead = true
+        });
+
+        return response.Item != null && response.Item.Count > 0;
     }
 
     private static int? ResolveLocationIdFromPath(APIGatewayProxyRequest request)
@@ -439,7 +506,6 @@ public class Function
         public string ReservationStart { get; init; } = string.Empty;
         public string ReservationEnd { get; init; } = string.Empty;
         public int TableId { get; init; }
-        public string WaiterId { get; init; } = string.Empty;
         public WaiterProfileDto? Waiter { get; init; }
         public string CustomerId { get; init; } = string.Empty;
         public int Guests { get; init; }
