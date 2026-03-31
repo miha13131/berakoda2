@@ -17,20 +17,20 @@ namespace CustomersSearch;
 public class Function
 {
     private readonly IAmazonDynamoDB _dynamoDb;
-    private readonly string _reservationsTable;
+    private readonly string _usersTable;
     private readonly string _waitersTable;
 
     public Function()
     {
         _dynamoDb = new AmazonDynamoDBClient();
-        _reservationsTable = Environment.GetEnvironmentVariable("RESERVATIONS_TABLE") ?? "Reservations";
+        _usersTable = Environment.GetEnvironmentVariable("USERS_TABLE") ?? "Users";
         _waitersTable = Environment.GetEnvironmentVariable("WAITERS_TABLE") ?? "waiters-list";
     }
 
-    public Function(IAmazonDynamoDB dynamoDb, string reservationsTable = "Reservations", string waitersTable = "waiters-list")
+    public Function(IAmazonDynamoDB dynamoDb, string usersTable = "Users", string waitersTable = "waiters-list")
     {
         _dynamoDb = dynamoDb;
-        _reservationsTable = reservationsTable;
+        _usersTable = usersTable;
         _waitersTable = waitersTable;
     }
 
@@ -64,36 +64,46 @@ public class Function
                 return ResponseCreator.CreateResponse(400, "Bad Request", "Provide query or id parameter.");
             }
 
-            var response = await _dynamoDb.ScanAsync(new ScanRequest
-            {
-                TableName = _reservationsTable,
-                ProjectionExpression = "customer_id, customer_name",
-            });
-
-            var customers = response.Items
-                .Select(MapCustomer)
-                .Where(c => !string.IsNullOrWhiteSpace(c.Id))
-                .Where(c => !string.Equals(c.Id, "guest-anonymous", StringComparison.OrdinalIgnoreCase))
-                .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                .ToList();
-
             if (!string.IsNullOrWhiteSpace(customerId))
             {
-                customers = customers
-                    .Where(c => string.Equals(c.Id, customerId, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                var userResponse = await _dynamoDb.GetItemAsync(new GetItemRequest
+                {
+                    TableName = _usersTable,
+                    Key = new Dictionary<string, AttributeValue>
+                    {
+                        ["user_id"] = new AttributeValue { S = customerId }
+                    },
+                    ConsistentRead = true
+                });
+
+                var user = userResponse.Item == null || userResponse.Item.Count == 0
+                    ? null
+                    : MapCustomer(userResponse.Item);
+
+                return ResponseCreator.CreateResponse(200, "Success",
+                    user == null ? new List<CustomerDto>() : new List<CustomerDto> { user });
             }
-            else
+
+            var normalizedQuery = searchQuery!.Trim();
+            var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
             {
-                var normalizedQuery = searchQuery!.Trim();
-                customers = customers
-                    .Where(c => ContainsIgnoreCase(c.Id, normalizedQuery) || ContainsIgnoreCase(c.Name, normalizedQuery))
-                    .OrderBy(c => c.Name)
-                    .ThenBy(c => c.Id)
-                    .Take(20)
-                    .ToList();
-            }
+                TableName = _usersTable,
+                FilterExpression = "contains(lower_username, :q) OR contains(username, :q) OR contains(user_id, :q)",
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":q"] = new AttributeValue { S = normalizedQuery.ToLowerInvariant() }
+                },
+                ProjectionExpression = "user_id, username",
+                Limit = 50
+            });
+
+            var customers = scanResponse.Items
+                .Select(MapCustomer)
+                .Where(c => !string.IsNullOrWhiteSpace(c.Id))
+                .OrderBy(c => c.Name)
+                .ThenBy(c => c.Id)
+                .Take(20)
+                .ToList();
 
             return ResponseCreator.CreateResponse(200, "Success", customers);
         }
@@ -156,20 +166,10 @@ public class Function
         }
     }
 
-    private static bool ContainsIgnoreCase(string source, string needle)
-    {
-        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(needle))
-        {
-            return false;
-        }
-
-        return source.Contains(needle, StringComparison.OrdinalIgnoreCase);
-    }
-
     private static CustomerDto MapCustomer(IReadOnlyDictionary<string, AttributeValue> item)
     {
-        var id = GetString(item, "customer_id");
-        var name = GetString(item, "customer_name");
+        var id = GetString(item, "user_id");
+        var name = GetString(item, "username");
 
         if (string.IsNullOrWhiteSpace(name))
         {

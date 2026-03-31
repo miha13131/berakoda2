@@ -10,7 +10,7 @@
   "lambda_path": "lambdas\\customers-search",
   "dependencies": [
     {
-      "resource_name": "Reservations",
+      "resource_name": "Users",
       "resource_type": "dynamodb_table"
     },
     {
@@ -20,7 +20,7 @@
   ],
   "event_sources": [],
   "env_variables": {
-    "RESERVATIONS_TABLE": "Reservations",
+    "USERS_TABLE": "Users",
     "WAITERS_TABLE": "waiters-list"
   },
   "publish_version": true,
