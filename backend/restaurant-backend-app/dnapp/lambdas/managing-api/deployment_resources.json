@@ -1,5 +1,5 @@
 {
-  "locations-feedback-role": {
+  "managing-api-role": {
     "predefined_policies": [],
     "principal_service": "lambda",
     "custom_policies": [
