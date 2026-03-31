@@ -205,7 +205,11 @@ public class Function
                 CreatedBy = isWaiterActor ? "waiter" : "customer"
             };
 
-            return ResponseCreator.CreateResponse(201, "Created", reservation);
+            var description = isWaiterActor
+                ? "The reservation was made by a waiter. He will be serving your table."
+                : "Created";
+
+            return ResponseCreator.CreateResponse(201, description, reservation);
         }
         catch (TransactionCanceledException ex)
         {
