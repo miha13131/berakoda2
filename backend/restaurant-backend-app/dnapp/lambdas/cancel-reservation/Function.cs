@@ -43,9 +43,10 @@ public class Function
     {
         try
         {
-            if (!string.Equals(request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(request.HttpMethod, "PATCH", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase))
             {
-                return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only DELETE is allowed.");
+                return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only PATCH (or legacy DELETE) is allowed.");
             }
 
             var customerId = ResolveCustomerId(request);
