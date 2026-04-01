@@ -414,13 +414,23 @@ public class Function
 
     private static ReservationView MapReservation(IReadOnlyDictionary<string, AttributeValue> item)
     {
+        var customerName = GetString(item, "customer_name");
+        var customerId = GetString(item, "customer_id");
+
+        if (string.IsNullOrWhiteSpace(customerName))
+        {
+            customerName = customerId;
+        }
+
         return new ReservationView
         {
             ReservationId = GetString(item, "reservation_id"),
             DateTimeStart = GetString(item, "date_time_start"),
+            ReservationEnd = GetString(item, "reservation_end"),
             TableId = GetInt(item, "table_id"),
             WaiterId = GetString(item, "waiter_id"),
-            CustomerId = GetString(item, "customer_id"),
+            CustomerId = customerId,
+            CustomerName = customerName,
             Status = GetString(item, "status"),
             Guests = GetInt(item, "guests")
         };
@@ -597,9 +607,11 @@ public class Function
     {
         public string ReservationId { get; init; } = string.Empty;
         public string DateTimeStart { get; init; } = string.Empty;
+        public string ReservationEnd { get; init; } = string.Empty;
         public int TableId { get; init; }
         public string WaiterId { get; init; } = string.Empty;
         public string CustomerId { get; init; } = string.Empty;
+        public string CustomerName { get; init; } = string.Empty;
         public string Status { get; init; } = string.Empty;
         public int Guests { get; init; }
     }
