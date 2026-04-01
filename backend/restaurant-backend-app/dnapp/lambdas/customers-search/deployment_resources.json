@@ -1,5 +1,5 @@
 {
-  "managing-api-role": {
+  "customers-search-role": {
     "predefined_policies": [],
     "principal_service": "lambda",
     "custom_policies": [
