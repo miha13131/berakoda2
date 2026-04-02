@@ -259,7 +259,14 @@ public class Function
 
         if (unchangedSlotAndTable)
         {
-            return ResponseCreator.CreateResponse(400, "Bad Request", "No changes detected. Table and reservation time are the same.");
+            return ResponseCreator.CreateResponse(200, "Success", new
+            {
+                reservationId = reservation.ReservationId,
+                tableId = reservation.TableId,
+                reservationStart = reservation.ReservationStart.ToString("O", CultureInfo.InvariantCulture),
+                reservationEnd = reservation.ReservationStart.AddMinutes(ReservationDurationMinutes).ToString("O", CultureInfo.InvariantCulture),
+                status = "NoChanges"
+            });
         }
 
         var newTable = await GetTableAsync(reservation.LocationId, newTableId);
@@ -282,7 +289,13 @@ public class Function
 
         var transactItems = new List<TransactWriteItem>();
 
-        foreach (var lockKey in BuildLockKeys(reservation.TableId, reservation.ReservationStart))
+        var oldLockKeys = BuildLockKeys(reservation.TableId, reservation.ReservationStart);
+        var newLockKeys = BuildLockKeys(newTableId, newStart);
+
+        var lockKeysToDelete = oldLockKeys.Except(newLockKeys, StringComparer.Ordinal);
+        var lockKeysToPut = newLockKeys.Except(oldLockKeys, StringComparer.Ordinal);
+
+        foreach (var lockKey in lockKeysToDelete)
         {
             transactItems.Add(new TransactWriteItem
             {
@@ -297,7 +310,7 @@ public class Function
             });
         }
 
-        foreach (var lockKey in BuildLockKeys(newTableId, newStart))
+        foreach (var lockKey in lockKeysToPut)
         {
             transactItems.Add(new TransactWriteItem
             {
