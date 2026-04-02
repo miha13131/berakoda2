@@ -43,9 +43,10 @@ public class Function
     {
         try
         {
-            if (!string.Equals(request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(request.HttpMethod, "PATCH", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase))
             {
-                return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only DELETE is allowed.");
+                return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only PATCH (or legacy DELETE) is allowed.");
             }
 
             var customerId = ResolveCustomerId(request);
@@ -74,6 +75,11 @@ public class Function
                 return ResponseCreator.CreateResponse(403, "Forbidden", "You can only cancel your own reservations.");
             }
 
+            if (string.Equals(reservation.Status, "canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                return ResponseCreator.CreateResponse(200, "Success", "Reservation already canceled.");
+            }
+
             var cancellationDeadline = reservation.ReservationStart.AddMinutes(-CancellationDeadlineMinutes);
             if (DateTime.UtcNow > cancellationDeadline)
             {
@@ -81,7 +87,8 @@ public class Function
                     "Cancellation is not allowed less than 30 minutes before reservation start time.");
             }
 
-            var reservationDeleteKey = BuildReservationDeleteKey(reservation);
+            var reservationKey = BuildReservationKey(reservation);
+            var canceledReservationItem = BuildCanceledReservationItem(reservation);
 
             var transactItems = new List<TransactWriteItem>
             {
@@ -90,12 +97,21 @@ public class Function
                     Delete = new Delete
                     {
                         TableName = _reservationsTable,
-                        Key = reservationDeleteKey,
+                        Key = reservationKey,
                         ConditionExpression = "customer_id = :customerId",
                         ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                         {
                             [":customerId"] = new AttributeValue { S = customerId }
                         }
+                    }
+                },
+                new()
+                {
+                    Put = new Put
+                    {
+                        TableName = _reservationsTable,
+                        Item = canceledReservationItem,
+                        ConditionExpression = "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
                     }
                 }
             };
@@ -120,7 +136,7 @@ public class Function
                 TransactItems = transactItems
             });
 
-            return ResponseCreator.CreateResponse(200, "Success", "Reservation cancelled successfully.");
+            return ResponseCreator.CreateResponse(200, "Success", "Reservation canceled successfully.");
         }
         catch (TransactionCanceledException ex)
         {
@@ -289,16 +305,46 @@ public class Function
             LocationId = locationIdValue.N,
             CustomerId = item.TryGetValue("customer_id", out var customerValue) ? customerValue.S : string.Empty,
             TableId = GetTableId(item),
-            ReservationStart = reservationStart
+            ReservationStart = reservationStart,
+            Status = item.TryGetValue("status", out var statusValue) ? statusValue.S : string.Empty,
+            SourceItem = item.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value))
         };
     }
 
-    private static Dictionary<string, AttributeValue> BuildReservationDeleteKey(ReservationData reservation)
+    private static Dictionary<string, AttributeValue> BuildReservationKey(ReservationData reservation)
     {
         return new Dictionary<string, AttributeValue>
         {
             ["location_id"] = new AttributeValue { N = reservation.LocationId },
             ["reservation_id_sk"] = new AttributeValue { S = reservation.ReservationIdSk }
+        };
+    }
+
+    private static Dictionary<string, AttributeValue> BuildCanceledReservationItem(ReservationData reservation)
+    {
+        var item = reservation.SourceItem.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value));
+        item["reservation_id_sk"] = new AttributeValue
+        {
+            S = $"{reservation.ReservationIdSk}#canceled#{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}"
+        };
+        item["status"] = new AttributeValue { S = "canceled" };
+        return item;
+    }
+
+    private static AttributeValue CloneAttributeValue(AttributeValue value)
+    {
+        return new AttributeValue
+        {
+            S = value.S,
+            N = value.N,
+            B = value.B,
+            BOOL = value.BOOL,
+            NULL = value.NULL,
+            SS = value.SS?.ToList(),
+            NS = value.NS?.ToList(),
+            BS = value.BS?.ToList(),
+            L = value.L?.Select(CloneAttributeValue).ToList(),
+            M = value.M?.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value))
         };
     }
 
@@ -346,6 +392,7 @@ public class Function
         public string CustomerId { get; init; } = string.Empty;
         public int TableId { get; init; }
         public DateTime ReservationStart { get; init; }
+        public string Status { get; init; } = string.Empty;
+        public Dictionary<string, AttributeValue> SourceItem { get; init; } = new();
     }
 }
-
