@@ -80,6 +80,11 @@ public class Function
             context.Logger.LogWarning($"Managing reservation transaction canceled: {ex.Message}");
             return ResponseCreator.CreateResponse(409, "Conflict", "Requested reservation update conflicts with existing booking.");
         }
+        catch (AmazonDynamoDBException ex)
+        {
+            context.Logger.LogWarning($"Managing reservation DynamoDB validation error: {ex.Message}");
+            return ResponseCreator.CreateResponse(400, "Bad Request", "Unable to apply reservation change. Check table/time and try again.");
+        }
         catch (Exception ex)
         {
             context.Logger.LogError($"Error in managing-api: {ex.Message}");
@@ -242,6 +247,21 @@ public class Function
             return ResponseCreator.CreateResponse(400, "Bad Request", "newTableId is required for change_table action.");
         }
 
+        if (newStart < DateTime.UtcNow)
+        {
+            return ResponseCreator.CreateResponse(400, "Bad Request", "newReservationStart cannot be in the past.");
+        }
+
+        var unchangedSlotAndTable =
+            newTableId == reservation.TableId &&
+            newStart.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) ==
+            reservation.ReservationStart.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+
+        if (unchangedSlotAndTable)
+        {
+            return ResponseCreator.CreateResponse(400, "Bad Request", "No changes detected. Table and reservation time are the same.");
+        }
+
         var newTable = await GetTableAsync(reservation.LocationId, newTableId);
         if (newTable == null)
         {
@@ -258,6 +278,7 @@ public class Function
         var slotId = reservation.SlotId;
         var newSk = $"{newDate}#{slotId}#{newTableId}";
         var newDateTimeStart = $"{newDate}#{newStart:HH:mm}";
+        var sameReservationKey = string.Equals(newSk, reservation.ReservationIdSk, StringComparison.Ordinal);
 
         var transactItems = new List<TransactWriteItem>();
 
@@ -298,42 +319,74 @@ public class Function
             });
         }
 
-        transactItems.Add(new TransactWriteItem
+        if (sameReservationKey)
         {
-            Delete = new Delete
+            transactItems.Add(new TransactWriteItem
             {
-                TableName = _reservationsTable,
-                Key = new Dictionary<string, AttributeValue>
+                Update = new Update
                 {
-                    ["location_id"] = new AttributeValue { N = reservation.LocationId.ToString(CultureInfo.InvariantCulture) },
-                    ["reservation_id_sk"] = new AttributeValue { S = reservation.ReservationIdSk }
+                    TableName = _reservationsTable,
+                    Key = new Dictionary<string, AttributeValue>
+                    {
+                        ["location_id"] = new AttributeValue { N = reservation.LocationId.ToString(CultureInfo.InvariantCulture) },
+                        ["reservation_id_sk"] = new AttributeValue { S = reservation.ReservationIdSk }
+                    },
+                    UpdateExpression = "SET date_time_start = :dateTimeStart, reservation_start = :start, reservation_end = :end, reservation_date = :date, table_id = :tableId, #status = :status",
+                    ExpressionAttributeNames = new Dictionary<string, string>
+                    {
+                        ["#status"] = "status"
+                    },
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                    {
+                        [":dateTimeStart"] = new AttributeValue { S = newDateTimeStart },
+                        [":start"] = new AttributeValue { S = newStart.ToString("O", CultureInfo.InvariantCulture) },
+                        [":end"] = new AttributeValue { S = newEnd.ToString("O", CultureInfo.InvariantCulture) },
+                        [":date"] = new AttributeValue { S = newDate },
+                        [":tableId"] = new AttributeValue { N = newTableId.ToString(CultureInfo.InvariantCulture) },
+                        [":status"] = new AttributeValue { S = postponeOnly ? "PostponedByWaiter" : "ChangedTableByWaiter" }
+                    }
                 }
-            }
-        });
-
-        transactItems.Add(new TransactWriteItem
+            });
+        }
+        else
         {
-            Put = new Put
+            transactItems.Add(new TransactWriteItem
             {
-                TableName = _reservationsTable,
-                Item = new Dictionary<string, AttributeValue>
+                Delete = new Delete
                 {
-                    ["location_id"] = new AttributeValue { N = reservation.LocationId.ToString(CultureInfo.InvariantCulture) },
-                    ["reservation_id_sk"] = new AttributeValue { S = newSk },
-                    ["date_time_start"] = new AttributeValue { S = newDateTimeStart },
-                    ["table_id"] = new AttributeValue { N = newTableId.ToString(CultureInfo.InvariantCulture) },
-                    ["reservation_id"] = new AttributeValue { S = reservation.ReservationId },
-                    ["reservation_start"] = new AttributeValue { S = newStart.ToString("O", CultureInfo.InvariantCulture) },
-                    ["reservation_end"] = new AttributeValue { S = newEnd.ToString("O", CultureInfo.InvariantCulture) },
-                    ["reservation_date"] = new AttributeValue { S = newDate },
-                    ["waiter_id"] = new AttributeValue { S = reservation.WaiterId },
-                    ["customer_id"] = new AttributeValue { S = reservation.CustomerId },
-                    ["status"] = new AttributeValue { S = postponeOnly ? "PostponedByWaiter" : "ChangedTableByWaiter" },
-                    ["guests"] = new AttributeValue { N = reservation.Guests.ToString(CultureInfo.InvariantCulture) }
-                },
-                ConditionExpression = "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
-            }
-        });
+                    TableName = _reservationsTable,
+                    Key = new Dictionary<string, AttributeValue>
+                    {
+                        ["location_id"] = new AttributeValue { N = reservation.LocationId.ToString(CultureInfo.InvariantCulture) },
+                        ["reservation_id_sk"] = new AttributeValue { S = reservation.ReservationIdSk }
+                    }
+                }
+            });
+
+            transactItems.Add(new TransactWriteItem
+            {
+                Put = new Put
+                {
+                    TableName = _reservationsTable,
+                    Item = new Dictionary<string, AttributeValue>
+                    {
+                        ["location_id"] = new AttributeValue { N = reservation.LocationId.ToString(CultureInfo.InvariantCulture) },
+                        ["reservation_id_sk"] = new AttributeValue { S = newSk },
+                        ["date_time_start"] = new AttributeValue { S = newDateTimeStart },
+                        ["table_id"] = new AttributeValue { N = newTableId.ToString(CultureInfo.InvariantCulture) },
+                        ["reservation_id"] = new AttributeValue { S = reservation.ReservationId },
+                        ["reservation_start"] = new AttributeValue { S = newStart.ToString("O", CultureInfo.InvariantCulture) },
+                        ["reservation_end"] = new AttributeValue { S = newEnd.ToString("O", CultureInfo.InvariantCulture) },
+                        ["reservation_date"] = new AttributeValue { S = newDate },
+                        ["waiter_id"] = new AttributeValue { S = reservation.WaiterId },
+                        ["customer_id"] = new AttributeValue { S = reservation.CustomerId },
+                        ["status"] = new AttributeValue { S = postponeOnly ? "PostponedByWaiter" : "ChangedTableByWaiter" },
+                        ["guests"] = new AttributeValue { N = reservation.Guests.ToString(CultureInfo.InvariantCulture) }
+                    },
+                    ConditionExpression = "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
+                }
+            });
+        }
 
         await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest
         {
