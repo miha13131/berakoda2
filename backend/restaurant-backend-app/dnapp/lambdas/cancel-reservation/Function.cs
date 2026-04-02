@@ -55,6 +55,8 @@ public class Function
                 return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to cancel a reservation.");
             }
 
+            var isHardDelete = string.Equals(request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase);
+
             var reservationId = ResolveReservationId(request);
             if (string.IsNullOrWhiteSpace(reservationId))
             {
@@ -75,7 +77,7 @@ public class Function
                 return ResponseCreator.CreateResponse(403, "Forbidden", "You can only cancel your own reservations.");
             }
 
-            if (string.Equals(reservation.Status, "canceled", StringComparison.OrdinalIgnoreCase))
+            if (!isHardDelete && string.Equals(reservation.Status, "canceled", StringComparison.OrdinalIgnoreCase))
             {
                 return ResponseCreator.CreateResponse(200, "Success", "Reservation already canceled.");
             }
@@ -88,11 +90,12 @@ public class Function
             }
 
             var reservationKey = BuildReservationKey(reservation);
-            var canceledReservationItem = BuildCanceledReservationItem(reservation);
 
-            var transactItems = new List<TransactWriteItem>
+            var transactItems = new List<TransactWriteItem>();
+
+            if (isHardDelete)
             {
-                new()
+                transactItems.Add(new TransactWriteItem
                 {
                     Delete = new Delete
                     {
@@ -104,8 +107,26 @@ public class Function
                             [":customerId"] = new AttributeValue { S = customerId }
                         }
                     }
-                },
-                new()
+                });
+            }
+            else
+            {
+                var canceledReservationItem = BuildCanceledReservationItem(reservation);
+                transactItems.Add(new TransactWriteItem
+                {
+                    Delete = new Delete
+                    {
+                        TableName = _reservationsTable,
+                        Key = reservationKey,
+                        ConditionExpression = "customer_id = :customerId",
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                        {
+                            [":customerId"] = new AttributeValue { S = customerId }
+                        }
+                    }
+                });
+
+                transactItems.Add(new TransactWriteItem
                 {
                     Put = new Put
                     {
@@ -113,8 +134,8 @@ public class Function
                         Item = canceledReservationItem,
                         ConditionExpression = "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
                     }
-                }
-            };
+                });
+            }
 
             foreach (var lockKey in BuildLockKeys(reservation.TableId, reservation.ReservationStart))
             {
@@ -136,7 +157,9 @@ public class Function
                 TransactItems = transactItems
             });
 
-            return ResponseCreator.CreateResponse(200, "Success", "Reservation canceled successfully.");
+            return isHardDelete
+                ? ResponseCreator.CreateResponse(200, "Success", "Reservation deleted successfully.")
+                : ResponseCreator.CreateResponse(200, "Success", "Reservation canceled successfully.");
         }
         catch (TransactionCanceledException ex)
         {
