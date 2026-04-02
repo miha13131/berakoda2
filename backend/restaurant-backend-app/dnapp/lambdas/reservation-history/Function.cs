@@ -97,6 +97,13 @@ public class Function
 
     private static ReservationHistoryItem MapReservation(Dictionary<string, AttributeValue> item)
     {
+        var customerId = GetString(item, "customer_id");
+        var customerName = GetString(item, "customer_name");
+        if (string.IsNullOrWhiteSpace(customerName))
+        {
+            customerName = customerId;
+        }
+
         return new ReservationHistoryItem
         {
             ReservationId = GetString(item, "reservation_id"),
@@ -106,6 +113,8 @@ public class Function
             TableId = GetIntFromAttribute(item, "table_id"),
             SlotId = GetSlotId(item),
             WaiterId = GetString(item, "waiter_id"),
+            CustomerId = customerId,
+            CustomerName = customerName,
             Status = GetString(item, "status"),
             Guests = GetInt(item, "guests"),
             LocationId = GetString(item, "location_id")
@@ -213,6 +222,8 @@ public class Function
         public int TableId { get; init; }
         public int SlotId { get; init; }
         public string WaiterId { get; init; } = string.Empty;
+        public string CustomerId { get; init; } = string.Empty;
+        public string CustomerName { get; init; } = string.Empty;
         public string LocationId { get; init; } = string.Empty;
         public string Status { get; init; } = string.Empty;
         public int Guests { get; init; }
