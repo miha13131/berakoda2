@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
@@ -22,11 +23,17 @@ public class Function
     private readonly string _reservationsTable;
     private readonly string _bookingLocksTable;
     private readonly string _waitersTable;
+    private readonly string _locationsTable;
 
     private const int ReservationDurationMinutes = 90;
     private const int CleaningGapMinutes = 15;
     private const int LockBucketMinutes = 15;
     private const string AnonymousCustomerId = "guest-anonymous";
+    private static readonly JsonSerializerOptions StrictJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
 
     public Function()
     {
@@ -35,15 +42,17 @@ public class Function
         _reservationsTable = Environment.GetEnvironmentVariable("RESERVATIONS_TABLE") ?? "Reservations";
         _bookingLocksTable = Environment.GetEnvironmentVariable("BOOKING_LOCKS_TABLE") ?? "BookingLocks";
         _waitersTable = Environment.GetEnvironmentVariable("WAITERS_TABLE") ?? "waiters-list";
+        _locationsTable = Environment.GetEnvironmentVariable("LOCATIONS_TABLE") ?? "Locations";
     }
 
-    public Function(IAmazonDynamoDB dynamoDb, string tablesTable = "Tables", string reservationsTable = "Reservations", string bookingLocksTable = "BookingLocks", string waitersTable = "waiters-list")
+    public Function(IAmazonDynamoDB dynamoDb, string tablesTable = "Tables", string reservationsTable = "Reservations", string bookingLocksTable = "BookingLocks", string waitersTable = "waiters-list", string locationsTable = "Locations")
     {
         _dynamoDb = dynamoDb;
         _tablesTable = tablesTable;
         _reservationsTable = reservationsTable;
         _bookingLocksTable = bookingLocksTable;
         _waitersTable = waitersTable;
+        _locationsTable = locationsTable;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(APIGatewayProxyRequest request, ILambdaContext context)
@@ -65,7 +74,28 @@ public class Function
 
             context.Logger.LogLine($"CustomerId: {customerId}");
 
-            var pathLocationId = ResolveLocationIdFromPath(request);
+            var locationIdResolution = ResolveLocationIdFromPath(request);
+            if (locationIdResolution.HasError)
+            {
+                return ResponseCreator.CreateResponse(400, "Bad Request", locationIdResolution.ErrorMessage!);
+            }
+
+            var pathLocationId = locationIdResolution.LocationId;
+
+            if (pathLocationId.HasValue && pathLocationId.Value <= 0)
+            {
+                return ResponseCreator.CreateResponse(400, "Bad Request", "location id must be a positive integer.");
+            }
+
+            if (!pathLocationId.HasValue)
+            {
+                return ResponseCreator.CreateResponse(400, "Bad Request", "location id is required in path.");
+            }
+
+            if (pathLocationId.HasValue && !await LocationExistsAsync(pathLocationId.Value))
+            {
+                return ResponseCreator.CreateResponse(404, "Not Found", "Location not found.");
+            }
 
             context.Logger.LogLine($"LocationId: {pathLocationId}");
 
@@ -75,8 +105,7 @@ public class Function
                     "tableId, guests and reservationStart are required.");
             }
 
-            var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var payload = JsonSerializer.Deserialize<CreateBookingRequest>(request.Body, StrictJsonOptions);
 
             if (payload == null || payload.TableId <= 0 || payload.Guests <= 0 || payload.SlotId <= 0)
             {
@@ -310,8 +339,7 @@ public class Function
 
         try
         {
-            var payload = JsonSerializer.Deserialize<CreateBookingRequest>(requestBody,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var payload = JsonSerializer.Deserialize<CreateBookingRequest>(requestBody, StrictJsonOptions);
             return string.IsNullOrWhiteSpace(payload?.CustomerId) ? null : payload.CustomerId;
         }
         catch
@@ -341,21 +369,50 @@ public class Function
         return response.Item != null && response.Item.Count > 0;
     }
 
-    private static int? ResolveLocationIdFromPath(APIGatewayProxyRequest request)
+    private static LocationIdResolution ResolveLocationIdFromPath(APIGatewayProxyRequest request)
     {
         if (request?.PathParameters == null)
         {
-            return null;
+            return LocationIdResolution.Success(null);
         }
 
         var pathParameters = request.PathParameters;
         if (!pathParameters.TryGetValue("id", out var rawLocationId) &&
             !pathParameters.TryGetValue("locationId", out rawLocationId))
         {
-            return null;
+            rawLocationId = request.QueryStringParameters != null &&
+                            request.QueryStringParameters.TryGetValue("location_id", out var locationFromQuery)
+                ? locationFromQuery
+                : null;
+
+            if (string.IsNullOrWhiteSpace(rawLocationId))
+            {
+                return LocationIdResolution.Success(null);
+            }
         }
 
-        return int.TryParse(rawLocationId, out var locationId) ? locationId : null;
+        if (!int.TryParse(rawLocationId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var locationId))
+        {
+            return LocationIdResolution.Error("location id in path must be an integer.");
+        }
+
+        return LocationIdResolution.Success(locationId);
+    }
+
+    private async Task<bool> LocationExistsAsync(int locationId)
+    {
+        var location = await _dynamoDb.GetItemAsync(new GetItemRequest
+        {
+            TableName = _locationsTable,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["location_id"] = new AttributeValue { N = locationId.ToString(CultureInfo.InvariantCulture) }
+            },
+            ProjectionExpression = "location_id",
+            ConsistentRead = true
+        });
+
+        return location.Item != null && location.Item.Count > 0;
     }
 
     private async Task<TableMetadata?> GetTableAsync(int tableId, int? locId)
@@ -523,5 +580,15 @@ public class Function
         public string Name { get; init; } = string.Empty;
         public string Photo { get; init; } = string.Empty;
         public double Rating { get; init; }
+    }
+
+    private sealed class LocationIdResolution
+    {
+        public int? LocationId { get; init; }
+        public bool HasError { get; init; }
+        public string? ErrorMessage { get; init; }
+
+        public static LocationIdResolution Success(int? locationId) => new() { LocationId = locationId };
+        public static LocationIdResolution Error(string message) => new() { HasError = true, ErrorMessage = message };
     }
 }

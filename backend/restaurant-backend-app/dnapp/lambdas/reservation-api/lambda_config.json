@@ -22,6 +22,10 @@
       "resource_type": "dynamodb_table"
     },
     {
+      "resource_name": "Locations",
+      "resource_type": "dynamodb_table"
+    },
+    {
       "resource_name": "waiters-list",
       "resource_type": "dynamodb_table"
     }
@@ -31,6 +35,7 @@
     "RESERVATIONS_TABLE": "Reservations",
     "TABLES_TABLE": "Tables",
     "BOOKING_LOCKS_TABLE": "BookingLocks",
+    "LOCATIONS_TABLE": "Locations",
     "WAITERS_TABLE": "waiters-list"
   },
   "publish_version": true,

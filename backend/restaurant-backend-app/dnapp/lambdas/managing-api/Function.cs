@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
@@ -17,6 +18,12 @@ namespace ManagingApi;
 
 public class Function
 {
+    private static readonly JsonSerializerOptions StrictJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
+
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _reservationsTable;
     private readonly string _tablesTable;
@@ -153,8 +160,7 @@ public class Function
             return ResponseCreator.CreateResponse(400, "Bad Request", "Request body is required.");
         }
 
-        var payload = JsonSerializer.Deserialize<ManageReservationRequest>(request.Body,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var payload = JsonSerializer.Deserialize<ManageReservationRequest>(request.Body, StrictJsonOptions);
 
         if (payload == null || string.IsNullOrWhiteSpace(payload.ReservationId))
         {

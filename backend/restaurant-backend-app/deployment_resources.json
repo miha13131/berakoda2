@@ -228,6 +228,23 @@
           "default_error_pattern": true
         }
       },
+      "/locations/{id}/reserve": {
+        "enable_cors": { "state": true },
+        "POST": {
+          "authorization_type": "NONE",
+          "integration_type": "lambda",
+          "lambda_name": "reservation-api",
+          "api_key_required": false,
+          "method_request_parameters": {
+            "method.request.path.id": true
+          },
+          "integration_request_body_template": {},
+          "responses": [],
+          "enable_proxy": true,
+          "integration_responses": [],
+          "default_error_pattern": true
+        }
+      },
       "/reservations": {
         "enable_cors": { "state": true },
         "GET": {
