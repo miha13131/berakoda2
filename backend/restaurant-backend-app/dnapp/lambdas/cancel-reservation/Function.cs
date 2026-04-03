@@ -63,10 +63,7 @@ public class Function
                 return ResponseCreator.CreateResponse(400, "Bad Request", "Reservation id is required in path parameter {id}.");
             }
 
-            var locationIdFromRequest = ResolveLocationId(request);
-            var reservationIdSkFromRequest = ResolveReservationIdSk(request);
-
-            var reservation = await GetReservationAsync(reservationId, locationIdFromRequest, reservationIdSkFromRequest);
+            var reservation = await GetReservationAsync(reservationId);
             if (reservation == null)
             {
                 return ResponseCreator.CreateResponse(404, "Not Found", "Reservation not found.");
@@ -225,67 +222,8 @@ public class Function
         return null;
     }
 
-    private static string? ResolveLocationId(APIGatewayProxyRequest request)
+    private async Task<ReservationData?> GetReservationAsync(string reservationId)
     {
-        if (request.PathParameters != null &&
-            request.PathParameters.TryGetValue("location_id", out var locationIdFromPath) &&
-            !string.IsNullOrWhiteSpace(locationIdFromPath))
-        {
-            return locationIdFromPath;
-        }
-
-        if (request.QueryStringParameters != null &&
-            request.QueryStringParameters.TryGetValue("location_id", out var locationIdFromQuery) &&
-            !string.IsNullOrWhiteSpace(locationIdFromQuery))
-        {
-            return locationIdFromQuery;
-        }
-
-        return null;
-    }
-
-    private static string? ResolveReservationIdSk(APIGatewayProxyRequest request)
-    {
-        if (request.PathParameters != null &&
-            request.PathParameters.TryGetValue("reservation_id_sk", out var reservationIdSkFromPath) &&
-            !string.IsNullOrWhiteSpace(reservationIdSkFromPath))
-        {
-            return reservationIdSkFromPath;
-        }
-
-        if (request.QueryStringParameters != null &&
-            request.QueryStringParameters.TryGetValue("reservation_id_sk", out var reservationIdSkFromQuery) &&
-            !string.IsNullOrWhiteSpace(reservationIdSkFromQuery))
-        {
-            return reservationIdSkFromQuery;
-        }
-
-        return null;
-    }
-
-    private async Task<ReservationData?> GetReservationAsync(string reservationId, string? locationId, string? reservationIdSk)
-    {
-        if (!string.IsNullOrWhiteSpace(locationId) && !string.IsNullOrWhiteSpace(reservationIdSk))
-        {
-            var getResponse = await _dynamoDb.GetItemAsync(new GetItemRequest
-            {
-                TableName = _reservationsTable,
-                Key = new Dictionary<string, AttributeValue>
-                {
-                    ["location_id"] = new AttributeValue { N = locationId },
-                    ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk }
-                },
-                ConsistentRead = true
-            });
-
-            var getItem = getResponse.Item;
-            if (getItem != null && getItem.Count > 0)
-            {
-                return ParseReservationItem(getItem, reservationId);
-            }
-
-        }
-
         var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
         {
             TableName = _reservationsTable,
@@ -293,17 +231,23 @@ public class Function
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 [":reservationId"] = new AttributeValue { S = reservationId }
-            },
-            Limit = 1
+            }
         });
 
-        var item = scanResponse.Items.FirstOrDefault();
-        if (item == null || item.Count == 0)
+        if (scanResponse.Items == null || scanResponse.Items.Count == 0)
         {
             return null;
         }
 
-        return ParseReservationItem(item, reservationId);
+        var activeItem = scanResponse.Items
+            .FirstOrDefault(item =>
+            {
+                var status = item.TryGetValue("status", out var statusValue) ? statusValue.S : string.Empty;
+                return !string.Equals(status, "canceled", StringComparison.OrdinalIgnoreCase);
+            });
+
+        var itemToUse = activeItem ?? scanResponse.Items.First();
+        return ParseReservationItem(itemToUse, reservationId);
     }
 
     private static ReservationData ParseReservationItem(IReadOnlyDictionary<string, AttributeValue> item, string reservationId)
