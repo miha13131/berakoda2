@@ -43,9 +43,10 @@ public class Function
     {
         try
         {
-            if (!string.Equals(request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(request.HttpMethod, "PATCH", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase))
             {
-                return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only DELETE is allowed.");
+                return ResponseCreator.CreateResponse(405, "Method Not Allowed", "Only PATCH (or legacy DELETE) is allowed.");
             }
 
             var customerId = ResolveCustomerId(request);
@@ -54,16 +55,15 @@ public class Function
                 return ResponseCreator.CreateResponse(401, "Unauthorized", "Please log in to cancel a reservation.");
             }
 
+            var isHardDelete = string.Equals(request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase);
+
             var reservationId = ResolveReservationId(request);
             if (string.IsNullOrWhiteSpace(reservationId))
             {
                 return ResponseCreator.CreateResponse(400, "Bad Request", "Reservation id is required in path parameter {id}.");
             }
 
-            var locationIdFromRequest = ResolveLocationId(request);
-            var reservationIdSkFromRequest = ResolveReservationIdSk(request);
-
-            var reservation = await GetReservationAsync(reservationId, locationIdFromRequest, reservationIdSkFromRequest);
+            var reservation = await GetReservationAsync(reservationId);
             if (reservation == null)
             {
                 return ResponseCreator.CreateResponse(404, "Not Found", "Reservation not found.");
@@ -74,6 +74,11 @@ public class Function
                 return ResponseCreator.CreateResponse(403, "Forbidden", "You can only cancel your own reservations.");
             }
 
+            if (!isHardDelete && string.Equals(reservation.Status, "canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                return ResponseCreator.CreateResponse(200, "Success", "Reservation already canceled.");
+            }
+
             var cancellationDeadline = reservation.ReservationStart.AddMinutes(-CancellationDeadlineMinutes);
             if (DateTime.UtcNow > cancellationDeadline)
             {
@@ -81,24 +86,53 @@ public class Function
                     "Cancellation is not allowed less than 30 minutes before reservation start time.");
             }
 
-            var reservationDeleteKey = BuildReservationDeleteKey(reservation);
+            var reservationKey = BuildReservationKey(reservation);
 
-            var transactItems = new List<TransactWriteItem>
+            var transactItems = new List<TransactWriteItem>();
+
+            if (isHardDelete)
             {
-                new()
+                transactItems.Add(new TransactWriteItem
                 {
                     Delete = new Delete
                     {
                         TableName = _reservationsTable,
-                        Key = reservationDeleteKey,
+                        Key = reservationKey,
                         ConditionExpression = "customer_id = :customerId",
                         ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                         {
                             [":customerId"] = new AttributeValue { S = customerId }
                         }
                     }
-                }
-            };
+                });
+            }
+            else
+            {
+                var canceledReservationItem = BuildCanceledReservationItem(reservation);
+                transactItems.Add(new TransactWriteItem
+                {
+                    Delete = new Delete
+                    {
+                        TableName = _reservationsTable,
+                        Key = reservationKey,
+                        ConditionExpression = "customer_id = :customerId",
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                        {
+                            [":customerId"] = new AttributeValue { S = customerId }
+                        }
+                    }
+                });
+
+                transactItems.Add(new TransactWriteItem
+                {
+                    Put = new Put
+                    {
+                        TableName = _reservationsTable,
+                        Item = canceledReservationItem,
+                        ConditionExpression = "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
+                    }
+                });
+            }
 
             foreach (var lockKey in BuildLockKeys(reservation.TableId, reservation.ReservationStart))
             {
@@ -120,7 +154,9 @@ public class Function
                 TransactItems = transactItems
             });
 
-            return ResponseCreator.CreateResponse(200, "Success", "Reservation cancelled successfully.");
+            return isHardDelete
+                ? ResponseCreator.CreateResponse(200, "Success", "Reservation deleted successfully.")
+                : ResponseCreator.CreateResponse(200, "Success", "Reservation canceled successfully.");
         }
         catch (TransactionCanceledException ex)
         {
@@ -186,67 +222,8 @@ public class Function
         return null;
     }
 
-    private static string? ResolveLocationId(APIGatewayProxyRequest request)
+    private async Task<ReservationData?> GetReservationAsync(string reservationId)
     {
-        if (request.PathParameters != null &&
-            request.PathParameters.TryGetValue("location_id", out var locationIdFromPath) &&
-            !string.IsNullOrWhiteSpace(locationIdFromPath))
-        {
-            return locationIdFromPath;
-        }
-
-        if (request.QueryStringParameters != null &&
-            request.QueryStringParameters.TryGetValue("location_id", out var locationIdFromQuery) &&
-            !string.IsNullOrWhiteSpace(locationIdFromQuery))
-        {
-            return locationIdFromQuery;
-        }
-
-        return null;
-    }
-
-    private static string? ResolveReservationIdSk(APIGatewayProxyRequest request)
-    {
-        if (request.PathParameters != null &&
-            request.PathParameters.TryGetValue("reservation_id_sk", out var reservationIdSkFromPath) &&
-            !string.IsNullOrWhiteSpace(reservationIdSkFromPath))
-        {
-            return reservationIdSkFromPath;
-        }
-
-        if (request.QueryStringParameters != null &&
-            request.QueryStringParameters.TryGetValue("reservation_id_sk", out var reservationIdSkFromQuery) &&
-            !string.IsNullOrWhiteSpace(reservationIdSkFromQuery))
-        {
-            return reservationIdSkFromQuery;
-        }
-
-        return null;
-    }
-
-    private async Task<ReservationData?> GetReservationAsync(string reservationId, string? locationId, string? reservationIdSk)
-    {
-        if (!string.IsNullOrWhiteSpace(locationId) && !string.IsNullOrWhiteSpace(reservationIdSk))
-        {
-            var getResponse = await _dynamoDb.GetItemAsync(new GetItemRequest
-            {
-                TableName = _reservationsTable,
-                Key = new Dictionary<string, AttributeValue>
-                {
-                    ["location_id"] = new AttributeValue { N = locationId },
-                    ["reservation_id_sk"] = new AttributeValue { S = reservationIdSk }
-                },
-                ConsistentRead = true
-            });
-
-            var getItem = getResponse.Item;
-            if (getItem != null && getItem.Count > 0)
-            {
-                return ParseReservationItem(getItem, reservationId);
-            }
-
-        }
-
         var scanResponse = await _dynamoDb.ScanAsync(new ScanRequest
         {
             TableName = _reservationsTable,
@@ -254,17 +231,23 @@ public class Function
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 [":reservationId"] = new AttributeValue { S = reservationId }
-            },
-            Limit = 1
+            }
         });
 
-        var item = scanResponse.Items.FirstOrDefault();
-        if (item == null || item.Count == 0)
+        if (scanResponse.Items == null || scanResponse.Items.Count == 0)
         {
             return null;
         }
 
-        return ParseReservationItem(item, reservationId);
+        var activeItem = scanResponse.Items
+            .FirstOrDefault(item =>
+            {
+                var status = item.TryGetValue("status", out var statusValue) ? statusValue.S : string.Empty;
+                return !string.Equals(status, "canceled", StringComparison.OrdinalIgnoreCase);
+            });
+
+        var itemToUse = activeItem ?? scanResponse.Items.First();
+        return ParseReservationItem(itemToUse, reservationId);
     }
 
     private static ReservationData ParseReservationItem(IReadOnlyDictionary<string, AttributeValue> item, string reservationId)
@@ -289,16 +272,46 @@ public class Function
             LocationId = locationIdValue.N,
             CustomerId = item.TryGetValue("customer_id", out var customerValue) ? customerValue.S : string.Empty,
             TableId = GetTableId(item),
-            ReservationStart = reservationStart
+            ReservationStart = reservationStart,
+            Status = item.TryGetValue("status", out var statusValue) ? statusValue.S : string.Empty,
+            SourceItem = item.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value))
         };
     }
 
-    private static Dictionary<string, AttributeValue> BuildReservationDeleteKey(ReservationData reservation)
+    private static Dictionary<string, AttributeValue> BuildReservationKey(ReservationData reservation)
     {
         return new Dictionary<string, AttributeValue>
         {
             ["location_id"] = new AttributeValue { N = reservation.LocationId },
             ["reservation_id_sk"] = new AttributeValue { S = reservation.ReservationIdSk }
+        };
+    }
+
+    private static Dictionary<string, AttributeValue> BuildCanceledReservationItem(ReservationData reservation)
+    {
+        var item = reservation.SourceItem.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value));
+        item["reservation_id_sk"] = new AttributeValue
+        {
+            S = $"{reservation.ReservationIdSk}#canceled#{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}"
+        };
+        item["status"] = new AttributeValue { S = "canceled" };
+        return item;
+    }
+
+    private static AttributeValue CloneAttributeValue(AttributeValue value)
+    {
+        return new AttributeValue
+        {
+            S = value.S,
+            N = value.N,
+            B = value.B,
+            BOOL = value.BOOL,
+            NULL = value.NULL,
+            SS = value.SS?.ToList(),
+            NS = value.NS?.ToList(),
+            BS = value.BS?.ToList(),
+            L = value.L?.Select(CloneAttributeValue).ToList(),
+            M = value.M?.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value))
         };
     }
 
@@ -346,6 +359,7 @@ public class Function
         public string CustomerId { get; init; } = string.Empty;
         public int TableId { get; init; }
         public DateTime ReservationStart { get; init; }
+        public string Status { get; init; } = string.Empty;
+        public Dictionary<string, AttributeValue> SourceItem { get; init; } = new();
     }
 }
-
