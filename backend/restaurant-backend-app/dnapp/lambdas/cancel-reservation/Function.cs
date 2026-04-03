@@ -108,28 +108,23 @@ public class Function
             }
             else
             {
-                var canceledReservationItem = BuildCanceledReservationItem(reservation);
                 transactItems.Add(new TransactWriteItem
                 {
-                    Delete = new Delete
+                    Update = new Update
                     {
                         TableName = _reservationsTable,
                         Key = reservationKey,
+                        UpdateExpression = "SET #status = :status",
                         ConditionExpression = "customer_id = :customerId",
+                        ExpressionAttributeNames = new Dictionary<string, string>
+                        {
+                            ["#status"] = "status"
+                        },
                         ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                         {
-                            [":customerId"] = new AttributeValue { S = customerId }
+                            [":customerId"] = new AttributeValue { S = customerId },
+                            [":status"] = new AttributeValue { S = "canceled" }
                         }
-                    }
-                });
-
-                transactItems.Add(new TransactWriteItem
-                {
-                    Put = new Put
-                    {
-                        TableName = _reservationsTable,
-                        Item = canceledReservationItem,
-                        ConditionExpression = "attribute_not_exists(location_id) AND attribute_not_exists(reservation_id_sk)"
                     }
                 });
             }
@@ -273,8 +268,7 @@ public class Function
             CustomerId = item.TryGetValue("customer_id", out var customerValue) ? customerValue.S : string.Empty,
             TableId = GetTableId(item),
             ReservationStart = reservationStart,
-            Status = item.TryGetValue("status", out var statusValue) ? statusValue.S : string.Empty,
-            SourceItem = item.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value))
+            Status = item.TryGetValue("status", out var statusValue) ? statusValue.S : string.Empty
         };
     }
 
@@ -360,6 +354,5 @@ public class Function
         public int TableId { get; init; }
         public DateTime ReservationStart { get; init; }
         public string Status { get; init; } = string.Empty;
-        public Dictionary<string, AttributeValue> SourceItem { get; init; } = new();
     }
 }
