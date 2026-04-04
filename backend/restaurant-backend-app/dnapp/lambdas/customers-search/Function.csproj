@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-		<AssemblyName>ManagingApi</AssemblyName>
+        <AssemblyName>CustomersSearch</AssemblyName>
         <TargetFramework>net8.0</TargetFramework>
         <OutputType>Library</OutputType>
         <Nullable>enable</Nullable>

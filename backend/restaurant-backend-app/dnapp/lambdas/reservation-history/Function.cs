@@ -97,6 +97,13 @@ public class Function
 
     private static ReservationHistoryItem MapReservation(Dictionary<string, AttributeValue> item)
     {
+        var customerId = GetString(item, "customer_id");
+        var customerName = GetString(item, "customer_name");
+        if (string.IsNullOrWhiteSpace(customerName))
+        {
+            customerName = customerId;
+        }
+
         return new ReservationHistoryItem
         {
             ReservationId = GetString(item, "reservation_id"),
@@ -106,6 +113,9 @@ public class Function
             TableId = GetIntFromAttribute(item, "table_id"),
             SlotId = GetSlotId(item),
             WaiterId = GetString(item, "waiter_id"),
+            CustomerId = customerId,
+            CustomerName = customerName,
+            CreatedBy = GetString(item, "created_by", "customer"),
             Status = GetString(item, "status"),
             Guests = GetInt(item, "guests"),
             LocationId = GetString(item, "location_id")
@@ -147,12 +157,12 @@ public class Function
         return null;
     }
 
-    private static string GetString(IReadOnlyDictionary<string, AttributeValue> item, string key)
+    private static string GetString(IReadOnlyDictionary<string, AttributeValue> item, string key, string defaultValue = "")
     {
-        if (!item.TryGetValue(key, out var attribute)) return string.Empty;
+        if (!item.TryGetValue(key, out var attribute)) return defaultValue;
         if (!string.IsNullOrWhiteSpace(attribute.S)) return attribute.S;
         if (!string.IsNullOrWhiteSpace(attribute.N)) return attribute.N;
-        return string.Empty;
+        return defaultValue;
     }
 
     private static int GetIntFromAttribute(IReadOnlyDictionary<string, AttributeValue> item, string key)
@@ -213,6 +223,9 @@ public class Function
         public int TableId { get; init; }
         public int SlotId { get; init; }
         public string WaiterId { get; init; } = string.Empty;
+        public string CustomerId { get; init; } = string.Empty;
+        public string CustomerName { get; init; } = string.Empty;
+        public string CreatedBy { get; init; } = "customer";
         public string LocationId { get; init; } = string.Empty;
         public string Status { get; init; } = string.Empty;
         public int Guests { get; init; }
