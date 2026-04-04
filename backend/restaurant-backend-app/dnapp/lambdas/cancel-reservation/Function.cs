@@ -281,6 +281,34 @@ public class Function
         };
     }
 
+    private static Dictionary<string, AttributeValue> BuildCanceledReservationItem(ReservationData reservation)
+    {
+        var item = reservation.SourceItem.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value));
+        item["reservation_id_sk"] = new AttributeValue
+        {
+            S = $"{reservation.ReservationIdSk}#canceled#{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}"
+        };
+        item["status"] = new AttributeValue { S = "canceled" };
+        return item;
+    }
+
+    private static AttributeValue CloneAttributeValue(AttributeValue value)
+    {
+        return new AttributeValue
+        {
+            S = value.S,
+            N = value.N,
+            B = value.B,
+            BOOL = value.BOOL,
+            NULL = value.NULL,
+            SS = value.SS?.ToList(),
+            NS = value.NS?.ToList(),
+            BS = value.BS?.ToList(),
+            L = value.L?.Select(CloneAttributeValue).ToList(),
+            M = value.M?.ToDictionary(pair => pair.Key, pair => CloneAttributeValue(pair.Value))
+        };
+    }
+
     private static int GetTableId(IReadOnlyDictionary<string, AttributeValue> item)
     {
         if (!item.TryGetValue("table_id", out var tableValue)) return 0;
