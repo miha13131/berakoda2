@@ -206,6 +206,7 @@ public class Function
                         ["waiter_id"] = new AttributeValue { S = reservationWaiterId },
                         ["customer_id"] = new AttributeValue { S = customerId },
                         ["status"] = new AttributeValue { S = "Reserved" },
+                        ["created_by"] = new AttributeValue { S = isWaiterActor ? "waiter" : "customer" },
                         ["guests"] = new AttributeValue { N = payload.Guests.ToString(CultureInfo.InvariantCulture) }
                     },
                     ConditionExpression =

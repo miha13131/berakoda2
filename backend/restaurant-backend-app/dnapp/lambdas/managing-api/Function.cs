@@ -503,6 +503,7 @@ public class Function
             WaiterId = GetString(item, "waiter_id"),
             CustomerId = customerId,
             CustomerName = customerName,
+            CreatedBy = GetString(item, "created_by", "customer"),
             Status = GetString(item, "status"),
             Guests = GetInt(item, "guests")
         };
@@ -624,12 +625,12 @@ public class Function
         return new DateTime(value.Year, value.Month, value.Day, value.Hour, minutes, 0, DateTimeKind.Utc);
     }
 
-    private static string GetString(IReadOnlyDictionary<string, AttributeValue> item, string key)
+    private static string GetString(IReadOnlyDictionary<string, AttributeValue> item, string key, string defaultValue = "")
     {
-        if (!item.TryGetValue(key, out var value)) return string.Empty;
+        if (!item.TryGetValue(key, out var value)) return defaultValue;
         if (!string.IsNullOrWhiteSpace(value.S)) return value.S;
         if (!string.IsNullOrWhiteSpace(value.N)) return value.N;
-        return string.Empty;
+        return defaultValue;
     }
 
     private static int GetInt(IReadOnlyDictionary<string, AttributeValue> item, string key)
@@ -684,6 +685,7 @@ public class Function
         public string WaiterId { get; init; } = string.Empty;
         public string CustomerId { get; init; } = string.Empty;
         public string CustomerName { get; init; } = string.Empty;
+        public string CreatedBy { get; init; } = "customer";
         public string Status { get; init; } = string.Empty;
         public int Guests { get; init; }
     }
